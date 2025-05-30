@@ -17,6 +17,14 @@ struct FastWithdrawalRequest {
     uint256 amount;
 }
 
+struct Position {
+    uint256 pos;
+    bool exists;
+}
+
+// Request Errors
+error FastWithdrawalRequestNotFound();
+
 // Funding Errors
 error ERC20TransferFailed();
 error TicketTransferFailed();
@@ -36,25 +44,30 @@ contract SLDTradeableExit {
 
     mapping(address => FastWithdrawalRequest[]) private dapp_requests;
     // {request_id: <request position in dapp requests>}
-    mapping(bytes => uint256) private id_to_request_position;
+    mapping(bytes => Position) private id_to_request_position;
 
     constructor(address tokenAddress) {
         ticket = FastWithdrawalTicket(tokenAddress);
     }
 
-    function _removeFastWithdrawalRequest(address dapp, bytes memory request_id) private {
-        uint256 pos = id_to_request_position[request_id];
+    function _removeFastWithdrawalRequest(address dapp, bytes memory request_id) internal {
+        Position memory position = id_to_request_position[request_id];
+        if (!position.exists) {
+            revert FastWithdrawalRequestNotFound();
+        }
+
         uint256 len = dapp_requests[dapp].length;
 
-        require(pos < len);
+        require(position.pos < len);
 
-        delete id_to_request_position[request_id];
+        //delete id_to_request_position[request_id];
+        position.exists = false;
 
         // replace item in "pos" by the last item
         bytes memory aux_request_id =
             abi.encode(dapp, dapp_requests[dapp][len - 1].input_index, dapp_requests[dapp][len - 1].voucher_index);
-        id_to_request_position[aux_request_id] = pos;
-        dapp_requests[dapp][pos] = dapp_requests[dapp][len - 1];
+        id_to_request_position[aux_request_id] = Position(position.pos, true);
+        dapp_requests[dapp][position.pos] = dapp_requests[dapp][len - 1];
 
         dapp_requests[dapp].pop();
     }
@@ -78,7 +91,7 @@ contract SLDTradeableExit {
 
         dapp_requests[dapp].push(request);
         bytes memory request_id = abi.encode(dapp, input_index, voucher_index);
-        id_to_request_position[request_id] = dapp_requests[dapp].length - 1;
+        id_to_request_position[request_id] = Position(dapp_requests[dapp].length - 1, true);
 
         ticket.mint(request_id, msg.sender, amount);
     }
@@ -93,9 +106,13 @@ contract SLDTradeableExit {
         returns (FastWithdrawalRequest memory)
     {
         bytes memory request_id = abi.encode(dapp, input_index, voucher_index);
-        uint256 pos = id_to_request_position[request_id];
+        Position memory position = id_to_request_position[request_id];
 
-        return dapp_requests[dapp][pos];
+        if (!position.exists) {
+            revert FastWithdrawalRequestNotFound();
+        }
+
+        return dapp_requests[dapp][position.pos];
     }
 
     function getFastWithdrawalRequestPrice(address dapp, uint256 input_index, uint256 voucher_index)
@@ -117,16 +134,19 @@ contract SLDTradeableExit {
         view
         returns (FastWithdrawalRequest memory)
     {
-        uint256 pos = id_to_request_position[request_id];
+        Position memory position = id_to_request_position[request_id];
+        if (!position.exists) {
+            revert FastWithdrawalRequestNotFound();
+        }
 
-        return dapp_requests[dapp][pos];
+        return dapp_requests[dapp][position.pos];
     }
 
     // Tickets are exchange by an ERC20 token once the Rollup state is final.
     // The fee charged by the L2 validators are included in the ticket price,
     // tickets worth less than the actual token, initial proportion is 1.168:1.
     // With time the price of the ticket gets closer to the price of the token.
-    function _calculate_ticket_proportion(uint256 request_timestamp) private view returns (uint256) {
+    function _calculate_ticket_proportion(uint256 request_timestamp) internal view returns (uint256) {
         uint256 initial_value = 1168000000000000000; // 1.168 * 1e18
         uint256 x = block.timestamp - request_timestamp;
 
@@ -149,16 +169,16 @@ contract SLDTradeableExit {
 
         // DYNAMIC PRICE
         uint256 ticket_proportion = _calculate_ticket_proportion(request.timestamp);
-        uint256 ticket_to_token = amount / ticket_proportion;
+        uint256 token_to_ticket = amount * ticket_proportion;
         uint256 ticket_amount_available = ticket.balanceOf(request_id, request.requester);
         uint256 transfer_amount;
 
         // verify the amount of tickets available
-        if (ticket_to_token <= ticket_amount_available) {
+        if (token_to_ticket <= ticket_amount_available) {
             transfer_amount = amount;
         } else {
-            transfer_amount = ticket_amount_available / ticket_proportion;
-            ticket_to_token = transfer_amount / ticket_proportion;
+            transfer_amount = (ticket_amount_available * 1e18) / ticket_proportion;
+            token_to_ticket = ticket_amount_available;
             //_removeFastWithdrawalRequest(dapp, request_id);
         }
 
@@ -169,7 +189,7 @@ contract SLDTradeableExit {
         }
 
         // transfer tickets from requester to liquidity provider
-        success = ticket.transferFrom(request.requester, msg.sender, ticket_to_token);
+        success = ticket.transferFrom(request_id, request.requester, msg.sender, token_to_ticket);
         if (!success) {
             revert TicketTransferFailed();
         }
@@ -197,9 +217,6 @@ contract SLDTradeableExit {
         assert(to_amount == request.amount);
         // 2) Validate voucher
         ICartesiDApp cartesi_dapp = ICartesiDApp(dapp);
-        // IConsensus consensus = cartesi_dapp.getConsensus();
-        // (bytes32 epochHash, ,) = consensus.getClaim(dapp, proof.context);
-        // proof.validity.validateVoucher(destination, payload, epochHash);
 
         // reverts if proof isn't valid
         cartesi_dapp.validateVoucher(destination, payload, proof);
@@ -227,7 +244,7 @@ contract SLDTradeableExit {
         // Delete request from list
     }
 
-    function _decodeTransferPayload(bytes calldata payload) private pure returns (address to, uint256 amount) {
+    function _decodeTransferPayload(bytes calldata payload) internal pure returns (address to, uint256 amount) {
         require(payload.length == 4 + 32 + 32, "Invalid payload length");
 
         // Skip the first 4 bytes (function selector)

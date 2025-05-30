@@ -20,6 +20,10 @@ contract FastWithdrawalTicket is ERC20, Ownable {
         revert("transfer_NOT_SUPPORTED");
     }
 
+    function transferFrom(address from, address to, uint256 value) public override returns (bool) {
+        revert("transferFrom_NOT_SUPPORTED");
+    }
+
     function balanceOf(bytes calldata request_id, address account) public view returns (uint256) {
         return _balances[request_id][account];
     }
@@ -34,10 +38,15 @@ contract FastWithdrawalTicket is ERC20, Ownable {
         _burn(account, value);
     }
 
-    function transferFrom(address from, address to, uint256 value) public override onlyOwner returns (bool) {
+    function transferFrom(bytes calldata request_id, address from, address to, uint256 value) public onlyOwner returns (bool) {
         address spender = _msgSender();
-        _spendAllowance(from, spender, value);
+
+        _balances[request_id][from] -= value;
+        _balances[request_id][to] += value;
+
         _transfer(from, to, value);
+        emit Transfer(from, to, value);
+
         return true;
     }
 }
