@@ -37,7 +37,7 @@ error FailedToExecuteVoucher();
 error NotEnoughTickets();
 
 // Events
-event FundingFastWithdrawal(address dapp, uint256 input_index, uint256 voucher_index, address token, uint256 amount);
+event FundingFastWithdrawal(address dapp, address requester, uint256 input_index, uint256 voucher_index, address token, uint256 amount);
 
 // Shared Liquidity Dynamic Tradeable Exit
 contract SLDTradeableExit {
@@ -94,7 +94,7 @@ contract SLDTradeableExit {
         request.timestamp = input_timestamp;
 
         dapp_requests[dapp].push(request);
-        bytes memory request_id = abi.encode(dapp, input_index, voucher_index);
+        bytes memory request_id = abi.encode(dapp, msg.sender, input_index, voucher_index);
         id_to_request_position[request_id] = Position(dapp_requests[dapp].length - 1, true);
 
         ticket.mint(request_id, msg.sender, amount);
@@ -104,12 +104,12 @@ contract SLDTradeableExit {
         return dapp_requests[dapp];
     }
 
-    function getFastWithdrawalRequest(address dapp, uint256 input_index, uint256 voucher_index)
+    function getFastWithdrawalRequest(address dapp, address requester, uint256 input_index, uint256 voucher_index)
         public
         view
         returns (FastWithdrawalRequest memory)
     {
-        bytes memory request_id = abi.encode(dapp, input_index, voucher_index);
+        bytes memory request_id = abi.encode(dapp, requester, input_index, voucher_index);
         Position memory position = id_to_request_position[request_id];
 
         if (!position.exists) {
@@ -119,12 +119,12 @@ contract SLDTradeableExit {
         return dapp_requests[dapp][position.pos];
     }
 
-    function getFastWithdrawalRequestRemainingTicketsPrice(address dapp, uint256 input_index, uint256 voucher_index)
+    function getFastWithdrawalRequestRemainingTicketsPrice(address dapp, address requester, uint256 input_index, uint256 voucher_index)
         public
         view
         returns (uint256, string memory, uint256, string memory)
     {
-        bytes memory request_id = abi.encode(dapp, input_index, voucher_index);
+        bytes memory request_id = abi.encode(dapp, requester, input_index, voucher_index);
         FastWithdrawalRequest memory request = _getFastWithdrawalRequest(dapp, request_id);
 
         ERC20 token = ERC20(request.token);
@@ -163,12 +163,13 @@ contract SLDTradeableExit {
 
     function fundFastWithdrawalRequest(
         address dapp,
+        address requester,
         uint256 input_index,
         uint256 voucher_index,
         IERC20 token,
         uint256 amount
     ) public {
-        bytes memory request_id = abi.encode(dapp, input_index, voucher_index);
+        bytes memory request_id = abi.encode(dapp, requester, input_index, voucher_index);
         FastWithdrawalRequest storage request = _getFastWithdrawalRequest(dapp, request_id);
         uint256 ticket_amount_available = ticket.balanceOf(request_id, request.requester);
 
@@ -207,11 +208,12 @@ contract SLDTradeableExit {
 
         request.tickets_bought += token_to_ticket;
 
-        emit FundingFastWithdrawal(dapp, input_index, voucher_index, address(token), transfer_amount);
+        emit FundingFastWithdrawal(dapp, requester, input_index, voucher_index, address(token), transfer_amount);
     }
 
     function withdraw(
         address dapp,
+        address requester,
         uint256 input_index,
         uint256 voucher_index,
         uint256 withdraw_amount,
@@ -219,15 +221,17 @@ contract SLDTradeableExit {
         bytes calldata payload,
         Proof calldata proof
     ) public {
-        bytes memory request_id = abi.encode(dapp, input_index, voucher_index);
+        bytes memory request_id = abi.encode(dapp, requester, input_index, voucher_index);
         FastWithdrawalRequest storage request = _getFastWithdrawalRequest(dapp, request_id);
 
         // 1) Verify voucher payload
         assert(destination == request.token);
 
-        (address to, uint256 to_amount) = _decodeTransferPayload(payload);
-        assert(to == address(this));
-        assert(to_amount == request.withdraw_value);
+        { // scope to avoid stack too deep errors
+            (address to, uint256 to_amount) = _decodeTransferPayload(payload);
+            assert(to == address(this));
+            assert(to_amount == request.withdraw_value);
+        }
         // 2) Validate voucher
         ICartesiDApp cartesi_dapp = ICartesiDApp(dapp);
 
@@ -242,7 +246,8 @@ contract SLDTradeableExit {
                 revert FailedToExecuteVoucher();
             }
         }
-        // Proceeds to withdraw
+
+        // 4) Proceeds to withdraw
         uint256 balance = ticket.balanceOf(request_id, msg.sender);
         if (withdraw_amount > balance) {
             revert NotEnoughTickets();
@@ -254,7 +259,7 @@ contract SLDTradeableExit {
 
         request.redeemed += withdraw_amount;
 
-        // 4) Delete request from list
+        // 5) Delete request from list
         if (request.redeemed >= request.withdraw_value) {
             _removeFastWithdrawalRequest(dapp, request_id);
         }
