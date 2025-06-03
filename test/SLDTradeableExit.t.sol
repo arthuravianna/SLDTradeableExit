@@ -97,20 +97,18 @@ contract SLDTradeableExitTest is Test, SLDTradeableExit {
         vm.assume(amount < 1e36);
 
         sld_tradeable_exit.requestFastWithdrawal(token, amount, dapp, input_index, voucher_index, input_timestamp);
+        bytes memory request_id = abi.encode(dapp, requester1, input_index, voucher_index);
 
         FastWithdrawalRequest memory requestExpected =
-            FastWithdrawalRequest(requester1, input_index, voucher_index, input_timestamp, token, amount, 0, 0);
+            FastWithdrawalRequest(request_id, input_timestamp, token, amount, 0, 0);
         FastWithdrawalRequest memory requestActual =
-            sld_tradeable_exit.getFastWithdrawalRequest(dapp, requester1, input_index, voucher_index);
+            sld_tradeable_exit.getFastWithdrawalRequest(request_id);
 
-        assertEq(requestActual.requester, requestExpected.requester, "requester mismatch");
-        assertEq(requestActual.input_index, requestExpected.input_index, "input_index mismatch");
-        assertEq(requestActual.voucher_index, requestExpected.voucher_index, "voucher_index mismatch");
+        assertEq(requestActual.id, request_id, "request_id mismatch");
         assertEq(requestActual.timestamp, requestExpected.timestamp, "timestamp mismatch");
         assertEq(requestActual.token, requestExpected.token, "token mismatch");
         assertEq(requestActual.withdraw_value, requestExpected.withdraw_value, "withdraw_value mismatch");
 
-        bytes memory request_id = abi.encode(dapp, requester1, input_index, voucher_index);
         uint256 ticketsActualBalance = tickets.balanceOf(request_id, requester1);
         assertEq(ticketsActualBalance, amount, "balance mismatch");
     }
@@ -118,11 +116,9 @@ contract SLDTradeableExitTest is Test, SLDTradeableExit {
     function test_FundFastWithdrawalRequestNotFound() public {
         vm.expectRevert();
 
+        bytes memory request_id = abi.encode(address(0), requester0, fw_request0_input_index, fw_request0_voucher_index);
         sld_tradeable_exit.fundFastWithdrawalRequest(
-            address(0),
-            requester0,
-            fw_request0_input_index,
-            fw_request0_voucher_index,
+            request_id,
             mockERC20,
             fw_amount
         );
@@ -134,16 +130,13 @@ contract SLDTradeableExitTest is Test, SLDTradeableExit {
         vm.warp(fakeTime);
         vm.prank(validator0);
 
+        bytes memory request_id = abi.encode(fw_dapp, requester0, fw_request0_input_index, fw_request0_voucher_index);
         sld_tradeable_exit.fundFastWithdrawalRequest(
-            fw_dapp,
-            requester0,
-            fw_request0_input_index,
-            fw_request0_voucher_index,
+            request_id,
             mockERC20,
             fw_amount
         );
 
-        bytes memory request_id = abi.encode(fw_dapp, requester0, fw_request0_input_index, fw_request0_voucher_index);
         // assert requester tickets balance
         assertEq(tickets.balanceOf(request_id, requester0), 0, "mismatch requester ticket balance");
 
@@ -160,19 +153,16 @@ contract SLDTradeableExitTest is Test, SLDTradeableExit {
         vm.warp(fakeTime);
 
         uint256 funding_amount = fw_amount / 2;
+        bytes memory request_id = abi.encode(fw_dapp, requester1, fw_request1_input_index, fw_request1_voucher_index);
 
         // Validator 0 funding
         vm.prank(validator0);
         sld_tradeable_exit.fundFastWithdrawalRequest(
-            fw_dapp,
-            requester1,
-            fw_request1_input_index,
-            fw_request1_voucher_index,
+            request_id,
             mockERC20,
             funding_amount
         );
 
-        bytes memory request_id = abi.encode(fw_dapp, requester1, fw_request1_input_index, fw_request1_voucher_index);
         // assert requester tickets balance
         assertEq(tickets.balanceOf(request_id, requester1), 41650000000000000000, "1) mismatch requester1 tickets balance");
 
@@ -188,10 +178,7 @@ contract SLDTradeableExitTest is Test, SLDTradeableExit {
         vm.warp(fakeTime);
         vm.prank(validator1);
         sld_tradeable_exit.fundFastWithdrawalRequest(
-            fw_dapp,
-            requester1,
-            fw_request1_input_index,
-            fw_request1_voucher_index,
+            request_id,
             mockERC20,
             funding_amount
         );
@@ -206,7 +193,7 @@ contract SLDTradeableExitTest is Test, SLDTradeableExit {
         assertEq(tickets.balanceOf(request_id, validator1), 41650000000000000000, "2) mismatch validator0 tickets balance");
 
         FastWithdrawalRequest memory request =
-            sld_tradeable_exit.getFastWithdrawalRequest(fw_dapp, requester1, fw_request1_input_index, fw_request1_voucher_index);
+            sld_tradeable_exit.getFastWithdrawalRequest(request_id);
         assertEq(request.tickets_bought, fw_amount, "mismatch tickets bought");
     }
 }
