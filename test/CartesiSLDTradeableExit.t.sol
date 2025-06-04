@@ -3,13 +3,15 @@ pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SLDTradeableExitFactory} from "../src/SLDTradeableExitFactory.sol";
-import {FastWithdrawalTicket} from "../src/FastWithdrawalTicket.sol";
-import {SLDTradeableExit, FastWithdrawalRequest} from "../src/SLDTradeableExit.sol";
-import {MockERC20} from './MockERC20.sol';
+import {FastWithdrawalTicket} from "../src/FastWithdrawalTicket/FastWithdrawalTicket.sol";
+import {SLDTradeableExitFactory} from "../src/CartesiSLDTradeableExit/CartesiSLDTradeableExitFactory.sol";
+import {
+    CartesiSLDTradeableExit, FastWithdrawalRequest
+} from "../src/CartesiSLDTradeableExit/CartesiSLDTradeableExit.sol";
+import {MockERC20} from "./MockERC20.sol";
 
-contract SLDTradeableExitTest is Test, SLDTradeableExit {
-    SLDTradeableExit public sld_tradeable_exit;
+contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
+    CartesiSLDTradeableExit public sld_tradeable_exit;
     FastWithdrawalTicket public tickets;
     MockERC20 public mockERC20;
 
@@ -24,15 +26,13 @@ contract SLDTradeableExitTest is Test, SLDTradeableExit {
     address fw_dapp = 0xECB28678045a94F8b96EdE1c8203aDEa81F8AAe3;
     uint256 fw_amount = 100000000000000000000;
 
-    uint256 fw_request0_input_index = 0;
-    uint256 fw_request0_voucher_index = 0;
+    bytes request0_id = abi.encode(fw_dapp, requester0, uint256(0), uint256(0));
     uint256 fw_request0_timestamp = 0;
 
-    uint256 fw_request1_input_index = 1;
-    uint256 fw_request1_voucher_index = 0;
+    bytes request1_id = abi.encode(fw_dapp, requester1, uint256(1), uint256(0));
     uint256 fw_request1_timestamp = 3600;
 
-    constructor() SLDTradeableExit(address(0)) {}
+    constructor() CartesiSLDTradeableExit(address(0)) {}
 
     function setUp() public {
         SLDTradeableExitFactory factory = new SLDTradeableExitFactory();
@@ -40,32 +40,22 @@ contract SLDTradeableExitTest is Test, SLDTradeableExit {
         address sldTradeableExitAddress;
         (ticketTokenAddress, sldTradeableExitAddress) = factory.deploy();
 
-        sld_tradeable_exit = SLDTradeableExit(sldTradeableExitAddress);
+        sld_tradeable_exit = CartesiSLDTradeableExit(sldTradeableExitAddress);
         tickets = FastWithdrawalTicket(ticketTokenAddress);
 
         mockERC20 = new MockERC20();
-        mockERC20.mint(validator0, 2*fw_amount);
-        mockERC20.mint(validator1, 2*fw_amount);
+        mockERC20.mint(validator0, 2 * fw_amount);
+        mockERC20.mint(validator1, 2 * fw_amount);
 
-        mockERC20.approve(validator0, address(sld_tradeable_exit), 2*fw_amount);
-        mockERC20.approve(validator1, address(sld_tradeable_exit), 2*fw_amount);
+        mockERC20.approve(validator0, address(sld_tradeable_exit), 2 * fw_amount);
+        mockERC20.approve(validator1, address(sld_tradeable_exit), 2 * fw_amount);
 
         // setup a fastWithdrawalRequest (used to test the funding)
         vm.prank(requester0);
-        sld_tradeable_exit.requestFastWithdrawal(
-            address(mockERC20), fw_amount, fw_dapp,
-            fw_request0_input_index, fw_request0_voucher_index, fw_request0_timestamp
-        );
+        sld_tradeable_exit.requestFastWithdrawal(request0_id, address(mockERC20), fw_amount, fw_request0_timestamp);
 
         vm.prank(requester1);
-        // sld_tradeable_exit.requestFastWithdrawal(
-        //     address(mockERC20), fw_amount, fw_dapp,
-        //     fw_request1_input_index, fw_request1_voucher_index, fw_request1_timestamp
-        // );
-        sld_tradeable_exit.requestFastWithdrawal(
-            address(mockERC20), fw_amount, fw_dapp,
-            fw_request1_input_index, fw_request1_voucher_index, fw_request1_timestamp
-        );
+        sld_tradeable_exit.requestFastWithdrawal(request1_id, address(mockERC20), fw_amount, fw_request1_timestamp);
         console.log("SLDTradeableExit:", address(sld_tradeable_exit));
         console.log("FastWithdrawalTicket:", address(tickets));
         console.log("MockERC20:", address(mockERC20));
@@ -96,18 +86,17 @@ contract SLDTradeableExitTest is Test, SLDTradeableExit {
         // assume a "safe" value for amount
         vm.assume(amount < 1e36);
 
-        sld_tradeable_exit.requestFastWithdrawal(token, amount, dapp, input_index, voucher_index, input_timestamp);
         bytes memory request_id = abi.encode(dapp, requester1, input_index, voucher_index);
+        sld_tradeable_exit.requestFastWithdrawal(request_id, token, amount, input_timestamp);
 
         FastWithdrawalRequest memory requestExpected =
             FastWithdrawalRequest(request_id, input_timestamp, token, amount, 0, 0);
-        FastWithdrawalRequest memory requestActual =
-            sld_tradeable_exit.getFastWithdrawalRequest(request_id);
+        FastWithdrawalRequest memory requestActual = sld_tradeable_exit.getFastWithdrawalRequest(request_id);
 
         assertEq(requestActual.id, request_id, "request_id mismatch");
         assertEq(requestActual.timestamp, requestExpected.timestamp, "timestamp mismatch");
         assertEq(requestActual.token, requestExpected.token, "token mismatch");
-        assertEq(requestActual.withdraw_value, requestExpected.withdraw_value, "withdraw_value mismatch");
+        assertEq(requestActual.amount, requestExpected.amount, "amount mismatch");
 
         uint256 ticketsActualBalance = tickets.balanceOf(request_id, requester1);
         assertEq(ticketsActualBalance, amount, "balance mismatch");
@@ -116,12 +105,8 @@ contract SLDTradeableExitTest is Test, SLDTradeableExit {
     function test_FundFastWithdrawalRequestNotFound() public {
         vm.expectRevert();
 
-        bytes memory request_id = abi.encode(address(0), requester0, fw_request0_input_index, fw_request0_voucher_index);
-        sld_tradeable_exit.fundFastWithdrawalRequest(
-            request_id,
-            mockERC20,
-            fw_amount
-        );
+        bytes memory request_id = abi.encode(address(0), requester0, 0, 0);
+        sld_tradeable_exit.fundFastWithdrawalRequest(request_id, mockERC20, fw_amount);
     }
 
     // A single validator funds the request
@@ -130,21 +115,16 @@ contract SLDTradeableExitTest is Test, SLDTradeableExit {
         vm.warp(fakeTime);
         vm.prank(validator0);
 
-        bytes memory request_id = abi.encode(fw_dapp, requester0, fw_request0_input_index, fw_request0_voucher_index);
-        sld_tradeable_exit.fundFastWithdrawalRequest(
-            request_id,
-            mockERC20,
-            fw_amount
-        );
+        sld_tradeable_exit.fundFastWithdrawalRequest(request0_id, mockERC20, fw_amount);
 
         // assert requester tickets balance
-        assertEq(tickets.balanceOf(request_id, requester0), 0, "mismatch requester ticket balance");
+        assertEq(tickets.balanceOf(request0_id, requester0), 0, "mismatch requester ticket balance");
 
         // assert requester MockERC20 balance
         assertEq(mockERC20.balanceOf(requester0), 85689802913453299057);
 
         // assert validator tickets balance
-        assertEq(tickets.balanceOf(request_id, validator0), fw_amount);
+        assertEq(tickets.balanceOf(request0_id, validator0), fw_amount);
     }
 
     // 2 validators fund the same request
@@ -153,47 +133,42 @@ contract SLDTradeableExitTest is Test, SLDTradeableExit {
         vm.warp(fakeTime);
 
         uint256 funding_amount = fw_amount / 2;
-        bytes memory request_id = abi.encode(fw_dapp, requester1, fw_request1_input_index, fw_request1_voucher_index);
 
         // Validator 0 funding
         vm.prank(validator0);
-        sld_tradeable_exit.fundFastWithdrawalRequest(
-            request_id,
-            mockERC20,
-            funding_amount
-        );
+        sld_tradeable_exit.fundFastWithdrawalRequest(request1_id, mockERC20, funding_amount);
 
         // assert requester tickets balance
-        assertEq(tickets.balanceOf(request_id, requester1), 41650000000000000000, "1) mismatch requester1 tickets balance");
+        assertEq(
+            tickets.balanceOf(request1_id, requester1), 41650000000000000000, "1) mismatch requester1 tickets balance"
+        );
 
         // assert requester MockERC20 balance
         assertEq(mockERC20.balanceOf(requester1), 50000000000000000000, "1) mismatch requester1 mockERC20 balance");
 
         // assert validator tickets balance
-        assertEq(tickets.balanceOf(request_id, validator0), 58350000000000000000, "1) mismatch validator0 tickets balance");
-
+        assertEq(
+            tickets.balanceOf(request1_id, validator0), 58350000000000000000, "1) mismatch validator0 tickets balance"
+        );
 
         // Validator 1 funding (this validator will pay more for the funding due to time)
-        fakeTime = fw_request1_timestamp + (3600*48); // 48 hours after the request
+        fakeTime = fw_request1_timestamp + (3600 * 48); // 48 hours after the request
         vm.warp(fakeTime);
         vm.prank(validator1);
-        sld_tradeable_exit.fundFastWithdrawalRequest(
-            request_id,
-            mockERC20,
-            funding_amount
-        );
-        
+        sld_tradeable_exit.fundFastWithdrawalRequest(request1_id, mockERC20, funding_amount);
+
         // assert requester tickets balance
-        assertEq(tickets.balanceOf(request_id, requester1), 0, "2) mismatch requester1 tickets balance");
+        assertEq(tickets.balanceOf(request1_id, requester1), 0, "2) mismatch requester1 tickets balance");
 
         // assert requester MockERC20 balance
         assertEq(mockERC20.balanceOf(requester1), 87187500000000000000, "2) mismatch requester1 mockERC20 balance");
 
         // assert validator tickets balance
-        assertEq(tickets.balanceOf(request_id, validator1), 41650000000000000000, "2) mismatch validator0 tickets balance");
+        assertEq(
+            tickets.balanceOf(request1_id, validator1), 41650000000000000000, "2) mismatch validator0 tickets balance"
+        );
 
-        FastWithdrawalRequest memory request =
-            sld_tradeable_exit.getFastWithdrawalRequest(request_id);
+        FastWithdrawalRequest memory request = sld_tradeable_exit.getFastWithdrawalRequest(request1_id);
         assertEq(request.tickets_bought, fw_amount, "mismatch tickets bought");
     }
 }

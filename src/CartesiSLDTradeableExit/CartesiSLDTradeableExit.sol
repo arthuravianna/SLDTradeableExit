@@ -5,85 +5,47 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ICartesiDApp, Proof} from "@arthuravianna/cartesi-rollups/contracts/dapp/ICartesiDApp.sol";
 import {IConsensus} from "@arthuravianna/cartesi-rollups/contracts/consensus/IConsensus.sol";
-import {FastWithdrawalTicket} from "./FastWithdrawalTicket.sol";
+import {FastWithdrawalTicket} from "../FastWithdrawalTicket/FastWithdrawalTicket.sol";
+import "../SLDTradeableExit/SLDTradeableExit.sol";
 
-struct FastWithdrawalRequest {
-    bytes id;
-    uint256 timestamp;
-    address token;
-    uint256 withdraw_value;
-    uint256 tickets_bought;
-    uint256 redeemed;
-}
-
-struct Position {
-    uint256 pos;
-    bool exists;
-}
-
-// Request Errors
-error FastWithdrawalRequestNotFound();
-
-// Funding Errors
-error ERC20TransferFailed();
-error TicketTransferFailed();
-error FundingCompleted();
-
-// Withdrawal Errors
+error FastWithdrawalRequesterMismatch();
 error VoucherIsNotAWithdrawal();
 error FailedToExecuteVoucher();
-error NotEnoughTickets();
-
-// Events
-event FundingFastWithdrawal(bytes request_id, address token, uint256 amount);
 
 // Shared Liquidity Dynamic Tradeable Exit
-contract SLDTradeableExit {
-    FastWithdrawalTicket public ticket;
-    uint256 constant default_dispute_period = 604800; // one week
+contract CartesiSLDTradeableExit is SLDTradeableExit {
+    constructor(address tokenAddress) SLDTradeableExit(tokenAddress) {}
 
-    mapping(address => FastWithdrawalRequest[]) private dapp_requests;
-    // {request_id: <request position in dapp requests>}
-    mapping(bytes => Position) private id_to_request_position;
-
-    constructor(address tokenAddress) {
-        ticket = FastWithdrawalTicket(tokenAddress);
-    }
-
-    function requestFastWithdrawal(
-        address token,
-        uint256 amount,
-        address dapp,
-        uint256 input_index,
-        uint256 voucher_index,
-        uint256 input_timestamp
-    ) public {
+    function requestFastWithdrawal(bytes calldata request_id, address token, uint256 amount, uint256 input_timestamp)
+        external
+    {
         // register fast withdrawal request
-        bytes memory request_id = abi.encode(dapp, msg.sender, input_index, voucher_index);
+        (address rollup, address requester,,) = abi.decode(request_id, (address, address, uint256, uint256));
+
+        if (requester != msg.sender) {
+            revert FastWithdrawalRequesterMismatch();
+        }
+
         FastWithdrawalRequest memory request;
         request.id = request_id;
         request.token = token;
-        request.withdraw_value = amount;
+        request.amount = amount;
         request.tickets_bought = 0;
         request.redeemed = 0;
         request.timestamp = input_timestamp;
 
-        dapp_requests[dapp].push(request);
-        id_to_request_position[request_id] = Position(dapp_requests[dapp].length - 1, true);
+        dapp_requests[rollup].push(request);
+        id_to_request_position[request_id] = Position(dapp_requests[rollup].length - 1, true);
 
         ticket.mint(request_id, msg.sender, amount);
     }
 
-    function getDappFastWithdrawalRequests(address dapp) public view returns (FastWithdrawalRequest[] memory) {
-        return dapp_requests[dapp];
+    function getRollupFastWithdrawalRequests(address rollup) external view returns (FastWithdrawalRequest[] memory) {
+        return dapp_requests[rollup];
     }
 
-    function getFastWithdrawalRequest(bytes memory request_id)
-        public
-        view
-        returns (FastWithdrawalRequest memory)
-    {
-        (address dapp, , ,) = abi.decode(request_id, (address, address, uint256, uint256));
+    function getFastWithdrawalRequest(bytes calldata request_id) external view returns (FastWithdrawalRequest memory) {
+        (address dapp,,,) = abi.decode(request_id, (address, address, uint256, uint256));
         Position memory position = id_to_request_position[request_id];
 
         if (!position.exists) {
@@ -93,17 +55,17 @@ contract SLDTradeableExit {
         return dapp_requests[dapp][position.pos];
     }
 
-    function getFastWithdrawalRequestRemainingTicketsPrice(bytes memory request_id)
-        public
+    function getFastWithdrawalRequestRemainingTicketsPrice(bytes calldata request_id)
+        external
         view
         returns (uint256, string memory, uint256, string memory)
     {
-        (address dapp, , ,) = abi.decode(request_id, (address, address, uint256, uint256));
+        (address dapp,,,) = abi.decode(request_id, (address, address, uint256, uint256));
         FastWithdrawalRequest memory request = _getFastWithdrawalRequest(dapp, request_id);
 
         ERC20 token = ERC20(request.token);
 
-        uint256 remaining = request.withdraw_value - request.tickets_bought;
+        uint256 remaining = request.amount - request.tickets_bought;
         uint256 ticket_proportion = _calculate_ticket_proportion(request.timestamp);
         uint256 token_to_ticket = remaining * ticket_proportion;
 
@@ -134,21 +96,17 @@ contract SLDTradeableExit {
         return initial_value - (1000000000000000) * (x / 3600);
     }
 
-    function fundFastWithdrawalRequest(
-        bytes memory request_id,
-        IERC20 token,
-        uint256 amount
-    ) public {
-        (address dapp, address requester, ,) = abi.decode(request_id, (address, address, uint256, uint256));
+    function fundFastWithdrawalRequest(bytes calldata request_id, IERC20 token, uint256 amount) external {
+        (address dapp, address requester,,) = abi.decode(request_id, (address, address, uint256, uint256));
         FastWithdrawalRequest storage request = _getFastWithdrawalRequest(dapp, request_id);
         uint256 ticket_amount_available = ticket.balanceOf(request_id, requester);
 
-        if (block.timestamp >= request.timestamp + default_dispute_period) {
-            revert("FAST_WITHDRAWAL_TIMEOUT");
+        if (ticket_amount_available == 0) {
+            revert FundingAlreadyCompleted();
         }
 
-        if (ticket_amount_available == 0) {
-            revert FundingCompleted();
+        if (block.timestamp >= request.timestamp + default_dispute_period) {
+            revert FundingTimeout();
         }
 
         // DYNAMIC PRICE
@@ -187,18 +145,20 @@ contract SLDTradeableExit {
         address destination,
         bytes calldata payload,
         Proof calldata proof
-    ) public {
-        (address dapp, , uint256 input_index, uint256 voucher_index) = abi.decode(request_id, (address, address, uint256, uint256));
+    ) external {
+        (address dapp,, uint256 input_index, uint256 voucher_index) =
+            abi.decode(request_id, (address, address, uint256, uint256));
         FastWithdrawalRequest storage request = _getFastWithdrawalRequest(dapp, request_id);
 
         // 1) Verify voucher payload
         assert(destination == request.token);
 
-        { // scope to avoid stack too deep errors
+        {
+            // scope to avoid stack too deep errors
             (address to, uint256 to_amount) = _decodeTransferPayload(payload);
             assert(to == address(this));
-            assert(to_amount == request.withdraw_value);
-        
+            assert(to_amount == request.amount);
+
             // 2) Validate voucher
             ICartesiDApp cartesi_dapp = ICartesiDApp(dapp);
 
@@ -228,7 +188,7 @@ contract SLDTradeableExit {
         request.redeemed += withdraw_amount;
 
         // 5) Delete request from list
-        if (request.redeemed >= request.withdraw_value) {
+        if (request.redeemed >= request.amount) {
             _removeFastWithdrawalRequest(dapp, request_id);
         }
     }
@@ -244,7 +204,7 @@ contract SLDTradeableExit {
 
     function _removeFastWithdrawalRequest(address dapp, bytes memory request_id) internal {
         Position storage position = id_to_request_position[request_id];
-        
+
         if (!position.exists) {
             revert FastWithdrawalRequestNotFound();
         }

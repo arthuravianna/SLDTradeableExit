@@ -38,7 +38,11 @@ contract FastWithdrawalTicket is ERC20, Ownable {
         _burn(account, value);
     }
 
-    function transferFrom(bytes calldata request_id, address from, address to, uint256 value) public onlyOwner returns (bool) {
+    function transferFrom(bytes calldata request_id, address from, address to, uint256 value)
+        public
+        onlyOwner
+        returns (bool)
+    {
         address spender = _msgSender();
 
         _balances[request_id][from] -= value;
