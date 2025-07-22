@@ -12,7 +12,8 @@ contract CartesiSLDTradeableExitScript is Script {
     function run() public {
         vm.startBroadcast();
 
-        cartesiSldTradeableExit = new CartesiSLDTradeableExit();
+        bytes32 MY_SALT = 0;
+        cartesiSldTradeableExit = new CartesiSLDTradeableExit{salt: MY_SALT}();
 
         vm.stopBroadcast();
     }
