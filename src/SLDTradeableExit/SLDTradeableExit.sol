@@ -3,8 +3,7 @@ pragma solidity ^0.8.13;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ICartesiDApp, Proof} from "@arthuravianna/cartesi-rollups/contracts/dapp/ICartesiDApp.sol";
-import {IConsensus} from "@arthuravianna/cartesi-rollups/contracts/consensus/IConsensus.sol";
+
 import {
     ITradeableExit,
     FastWithdrawalRequest,

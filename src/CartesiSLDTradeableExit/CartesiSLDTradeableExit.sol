@@ -3,8 +3,8 @@ pragma solidity ^0.8.13;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ICartesiDApp, Proof} from "@arthuravianna/cartesi-rollups/contracts/dapp/ICartesiDApp.sol";
-import {IConsensus} from "@arthuravianna/cartesi-rollups/contracts/consensus/IConsensus.sol";
+import {ICartesiDApp, Proof} from "@cartesi/rollups/contracts/dapp/ICartesiDApp.sol";
+import {IConsensus} from "@cartesi/rollups/contracts/consensus/IConsensus.sol";
 import "../SLDTradeableExit/SLDTradeableExit.sol";
 
 error FastWithdrawalRequesterMismatch();
@@ -138,10 +138,6 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
         // transfer tickets from requester to liquidity provider
         tickets[request_id][requester] -= token_to_ticket;
         tickets[request_id][msg.sender] += token_to_ticket;
-        //success = ticket.transferFrom(request_id, requester, msg.sender, token_to_ticket);
-        //if (!success) {
-            //revert TicketTransferFailed();
-        //}
 
         request.tickets_bought += token_to_ticket;
 
@@ -168,13 +164,8 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
             assert(to == address(this));
             assert(to_amount == request.amount);
 
-            // 2) Validate voucher
+            // 2) Was voucher executed?
             ICartesiDApp cartesi_dapp = ICartesiDApp(dapp);
-
-            // reverts if proof isn't valid
-            cartesi_dapp.validateVoucher(destination, payload, proof);
-
-            // 3) Was voucher executed?
             if (!cartesi_dapp.wasVoucherExecuted(input_index, voucher_index)) {
                 bool success = cartesi_dapp.executeVoucher(destination, payload, proof);
 
@@ -184,7 +175,7 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
             }
         }
 
-        // 4) Proceeds to withdraw
+        // 3) Proceeds to withdraw
         if (withdraw_amount > tickets[request_id][msg.sender]) {
             revert NotEnoughTickets();
         }
