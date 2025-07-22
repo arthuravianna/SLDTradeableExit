@@ -3,16 +3,13 @@ pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {FastWithdrawalTicket} from "../src/FastWithdrawalTicket/FastWithdrawalTicket.sol";
-import {SLDTradeableExitFactory} from "../src/CartesiSLDTradeableExit/CartesiSLDTradeableExitFactory.sol";
 import {
     CartesiSLDTradeableExit, FastWithdrawalRequest
 } from "../src/CartesiSLDTradeableExit/CartesiSLDTradeableExit.sol";
 import {MockERC20} from "./MockERC20.sol";
 
 contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
-    CartesiSLDTradeableExit public sld_tradeable_exit;
-    FastWithdrawalTicket public tickets;
+    CartesiSLDTradeableExit public sld_tradeable_exit = new CartesiSLDTradeableExit();
     MockERC20 public mockERC20;
 
     address requester0 = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC;
@@ -32,17 +29,9 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
     bytes request1_id = abi.encode(fw_dapp, requester1, uint256(1), uint256(0));
     uint256 fw_request1_timestamp = 3600;
 
-    constructor() CartesiSLDTradeableExit(address(0)) {}
+    // constructor() CartesiSLDTradeableExit(address(0)) {}
 
     function setUp() public {
-        SLDTradeableExitFactory factory = new SLDTradeableExitFactory();
-        address ticketTokenAddress;
-        address sldTradeableExitAddress;
-        (ticketTokenAddress, sldTradeableExitAddress) = factory.deploy();
-
-        sld_tradeable_exit = CartesiSLDTradeableExit(sldTradeableExitAddress);
-        tickets = FastWithdrawalTicket(ticketTokenAddress);
-
         mockERC20 = new MockERC20();
         mockERC20.mint(validator0, 2 * fw_amount);
         mockERC20.mint(validator1, 2 * fw_amount);
@@ -57,7 +46,6 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
         vm.prank(requester1);
         sld_tradeable_exit.requestFastWithdrawal(request1_id, address(mockERC20), fw_amount, fw_request1_timestamp);
         console.log("SLDTradeableExit:", address(sld_tradeable_exit));
-        console.log("FastWithdrawalTicket:", address(tickets));
         console.log("MockERC20:", address(mockERC20));
     }
 
@@ -90,7 +78,7 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
         sld_tradeable_exit.requestFastWithdrawal(request_id, token, amount, input_timestamp);
 
         FastWithdrawalRequest memory requestExpected =
-            FastWithdrawalRequest(request_id, input_timestamp, token, amount, 0, 0);
+            FastWithdrawalRequest(request_id, token, input_timestamp, amount, 0, 0);
         FastWithdrawalRequest memory requestActual = sld_tradeable_exit.getFastWithdrawalRequest(request_id);
 
         assertEq(requestActual.id, request_id, "request_id mismatch");
@@ -98,7 +86,7 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
         assertEq(requestActual.token, requestExpected.token, "token mismatch");
         assertEq(requestActual.amount, requestExpected.amount, "amount mismatch");
 
-        uint256 ticketsActualBalance = tickets.balanceOf(request_id, requester1);
+        uint256 ticketsActualBalance = sld_tradeable_exit.getTickets(request_id, requester1);
         assertEq(ticketsActualBalance, amount, "balance mismatch");
     }
 
@@ -118,13 +106,13 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
         sld_tradeable_exit.fundFastWithdrawalRequest(request0_id, mockERC20, fw_amount);
 
         // assert requester tickets balance
-        assertEq(tickets.balanceOf(request0_id, requester0), 0, "mismatch requester ticket balance");
+        assertEq(sld_tradeable_exit.getTickets(request0_id, requester0), 0, "mismatch requester ticket balance");
 
         // assert requester MockERC20 balance
         assertEq(mockERC20.balanceOf(requester0), 85689802913453299057);
 
         // assert validator tickets balance
-        assertEq(tickets.balanceOf(request0_id, validator0), fw_amount);
+        assertEq(sld_tradeable_exit.getTickets(request0_id, validator0), fw_amount);
     }
 
     // 2 validators fund the same request
@@ -140,7 +128,7 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
 
         // assert requester tickets balance
         assertEq(
-            tickets.balanceOf(request1_id, requester1), 41650000000000000000, "1) mismatch requester1 tickets balance"
+            sld_tradeable_exit.getTickets(request1_id, requester1), 41650000000000000000, "1) mismatch requester1 tickets balance"
         );
 
         // assert requester MockERC20 balance
@@ -148,7 +136,7 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
 
         // assert validator tickets balance
         assertEq(
-            tickets.balanceOf(request1_id, validator0), 58350000000000000000, "1) mismatch validator0 tickets balance"
+            sld_tradeable_exit.getTickets(request1_id, validator0), 58350000000000000000, "1) mismatch validator0 tickets balance"
         );
 
         // Validator 1 funding (this validator will pay more for the funding due to time)
@@ -158,14 +146,14 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
         sld_tradeable_exit.fundFastWithdrawalRequest(request1_id, mockERC20, funding_amount);
 
         // assert requester tickets balance
-        assertEq(tickets.balanceOf(request1_id, requester1), 0, "2) mismatch requester1 tickets balance");
+        assertEq(sld_tradeable_exit.getTickets(request1_id, requester1), 0, "2) mismatch requester1 tickets balance");
 
         // assert requester MockERC20 balance
         assertEq(mockERC20.balanceOf(requester1), 87187500000000000000, "2) mismatch requester1 mockERC20 balance");
 
         // assert validator tickets balance
         assertEq(
-            tickets.balanceOf(request1_id, validator1), 41650000000000000000, "2) mismatch validator0 tickets balance"
+            sld_tradeable_exit.getTickets(request1_id, validator1), 41650000000000000000, "2) mismatch validator0 tickets balance"
         );
 
         FastWithdrawalRequest memory request = sld_tradeable_exit.getFastWithdrawalRequest(request1_id);

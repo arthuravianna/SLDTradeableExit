@@ -2,21 +2,19 @@
 pragma solidity ^0.8.13;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ICartesiDApp, Proof} from "@arthuravianna/cartesi-rollups/contracts/dapp/ICartesiDApp.sol";
-import {IConsensus} from "@arthuravianna/cartesi-rollups/contracts/consensus/IConsensus.sol";
+import {Proof} from "@cartesi/rollups/contracts/dapp/ICartesiDApp.sol";
 
 struct FastWithdrawalRequest {
     bytes id;
-    uint256 timestamp;
     address token;
+    uint256 timestamp;
     uint256 amount;
     uint256 tickets_bought;
     uint256 redeemed;
 }
 
 struct Position {
-    uint256 pos;
+    uint64 pos;
     bool exists;
 }
 
@@ -56,5 +54,5 @@ interface ITradeableExit {
     function getFastWithdrawalRequestRemainingTicketsPrice(bytes memory request_id)
         external
         view
-        returns (uint256, string memory, uint256, string memory);
+        returns (uint256, uint256, string memory);
 }

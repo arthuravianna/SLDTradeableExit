@@ -3,9 +3,7 @@ pragma solidity ^0.8.13;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ICartesiDApp, Proof} from "@arthuravianna/cartesi-rollups/contracts/dapp/ICartesiDApp.sol";
-import {IConsensus} from "@arthuravianna/cartesi-rollups/contracts/consensus/IConsensus.sol";
-import {FastWithdrawalTicket} from "../FastWithdrawalTicket/FastWithdrawalTicket.sol";
+
 import {
     ITradeableExit,
     FastWithdrawalRequest,
@@ -24,14 +22,11 @@ error NotEnoughTickets();
 
 // Shared Liquidity Dynamic Tradeable Exit
 abstract contract SLDTradeableExit is ITradeableExit {
-    FastWithdrawalTicket public ticket;
     uint256 internal constant default_dispute_period = 604800; // one week
 
     mapping(address => FastWithdrawalRequest[]) internal dapp_requests;
     // {request_id: <request position in dapp requests>}
     mapping(bytes => Position) internal id_to_request_position;
 
-    constructor(address tokenAddress) {
-        ticket = FastWithdrawalTicket(tokenAddress);
-    }
+    mapping(bytes => mapping(address => uint256)) internal tickets;
 }
