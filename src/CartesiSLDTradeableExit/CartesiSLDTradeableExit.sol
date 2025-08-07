@@ -156,13 +156,13 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
         FastWithdrawalRequest storage request = _getFastWithdrawalRequest(dapp, request_id);
 
         // 1) Verify voucher payload
-        assert(destination == request.token);
+        require(destination == request.token, "Invalid voucher destination");
 
         {
             // scope to avoid stack too deep errors
             (address to, uint256 to_amount) = _decodeTransferPayload(payload);
-            assert(to == address(this));
-            assert(to_amount == request.amount);
+            require(to == address(this), "Invalid voucher payload: 'to'");
+            require(to_amount == request.amount, "Invalid voucher payload: 'to_amount'");
 
             // 2) Was voucher executed?
             ICartesiDApp cartesi_dapp = ICartesiDApp(dapp);
@@ -195,10 +195,11 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
     function _decodeTransferPayload(bytes calldata payload) internal pure returns (address to, uint256 amount) {
         require(payload.length == 4 + 32 + 32, "Invalid payload length");
 
-        // Skip the first 4 bytes (function selector)
-        bytes calldata data = payload[4:];
+        bytes4 selector = bytes4(payload[:4]);
+        require(selector == bytes4(keccak256("transfer(address,uint256)")), "Not a transfer() call");
 
-        (to, amount) = abi.decode(data, (address, uint256));
+        bytes memory params = payload[4:];
+        (to, amount) = abi.decode(params, (address, uint256));
     }
 
     function _removeFastWithdrawalRequest(address dapp, bytes memory request_id) internal {
