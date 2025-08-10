@@ -14,7 +14,7 @@ error FailedToExecuteVoucher();
 // Shared Liquidity Dynamic Tradeable Exit
 contract CartesiSLDTradeableExit is SLDTradeableExit {
 
-    function requestFastWithdrawal(bytes calldata request_id, address token, uint256 amount, uint256 input_timestamp) external {
+    function requestFastWithdrawal(bytes calldata request_id, address token, uint256 amount, uint256 input_timestamp) external override {
         (address rollup, address requester,,) = abi.decode(request_id, (address, address, uint256, uint256));
         if (requester != msg.sender) revert FastWithdrawalRequesterMismatch();
 
@@ -41,11 +41,11 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
     function getTickets(bytes calldata request_id, address account) public view returns (uint256) {
         return tickets[request_id][account];
     }
-    function getRollupFastWithdrawalRequests(address rollup) external view returns (FastWithdrawalRequest[] memory) {
+    function getRollupFastWithdrawalRequests(address rollup) external view override returns (FastWithdrawalRequest[] memory) {
         return dapp_requests[rollup];
     }
 
-    function getFastWithdrawalRequest(bytes calldata request_id) external view returns (FastWithdrawalRequest memory) {
+    function getFastWithdrawalRequest(bytes calldata request_id) external view override returns (FastWithdrawalRequest memory) {
         (address dapp,,,) = abi.decode(request_id, (address, address, uint256, uint256));
         Position memory position = id_to_request_position[request_id];
 
@@ -59,6 +59,7 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
     function getFastWithdrawalRequestRemainingTicketsPrice(bytes calldata request_id)
         external
         view
+        override
         returns (uint256, uint256, string memory)
     {
         (address dapp,,,) = abi.decode(request_id, (address, address, uint256, uint256));
@@ -103,7 +104,7 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
         }
     }
 
-    function fundFastWithdrawalRequest(bytes calldata request_id, IERC20 token, uint256 amount) external {
+    function fundFastWithdrawalRequest(bytes calldata request_id, IERC20 token, uint256 amount) external override {
         (address dapp, address requester,,) = abi.decode(request_id, (address, address, uint256, uint256));
         FastWithdrawalRequest storage request = _getFastWithdrawalRequest(dapp, request_id);
         uint256 ticket_amount_available = tickets[request_id][requester];
@@ -146,11 +147,10 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
 
     function withdraw(
         bytes calldata request_id,
-        uint256 withdraw_amount,
         address destination,
         bytes calldata payload,
         Proof calldata proof
-    ) external {
+    ) external override {
         (address dapp,, uint256 input_index, uint256 voucher_index) =
             abi.decode(request_id, (address, address, uint256, uint256));
         FastWithdrawalRequest storage request = _getFastWithdrawalRequest(dapp, request_id);
@@ -176,15 +176,10 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
         }
 
         // 3) Proceeds to withdraw
-        if (withdraw_amount > tickets[request_id][msg.sender]) {
-            revert NotEnoughTickets();
-        }
-
         IERC20 token = IERC20(request.token);
-        token.transfer(msg.sender, withdraw_amount);
-        tickets[request_id][msg.sender] -= withdraw_amount;
+        token.transfer(msg.sender, tickets[request_id][msg.sender]);
 
-        request.redeemed += withdraw_amount;
+        request.redeemed += tickets[request_id][msg.sender];
 
         // 5) Delete request from list
         if (request.redeemed >= request.amount) {

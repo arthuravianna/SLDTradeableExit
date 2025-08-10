@@ -33,26 +33,26 @@ error NotEnoughBalanceToWithdrawal();
 event FundingFastWithdrawal(bytes request_id, address token, uint256 amount);
 
 // Shared Liquidity Dynamic Tradeable Exit Interface
-interface ITradeableExit {
-    function requestFastWithdrawal(bytes calldata request_id, address token, uint256 amount, uint256 input_timestamp)
-        external;
+abstract contract TradeableExit {
+    uint256 internal constant default_dispute_period = 604800; // one week
 
-    function fundFastWithdrawalRequest(bytes calldata request_id, IERC20 token, uint256 amount) external;
+    mapping(address => FastWithdrawalRequest[]) internal dapp_requests;
+    // {request_id: <request position in dapp/rollup requests>}
+    mapping(bytes => Position) internal id_to_request_position;
+
+    function requestFastWithdrawal(bytes calldata request_id, address token, uint256 amount, uint256 input_timestamp)
+        external virtual;
+
+    function fundFastWithdrawalRequest(bytes calldata request_id, IERC20 token, uint256 amount) external virtual;
 
     function withdraw(
         bytes calldata request_id,
-        uint256 withdraw_amount,
         address destination,
         bytes calldata payload,
         Proof calldata proof
-    ) external;
+    ) external virtual;
 
-    function getRollupFastWithdrawalRequests(address rollup) external view returns (FastWithdrawalRequest[] memory);
+    function getRollupFastWithdrawalRequests(address rollup) external view virtual returns (FastWithdrawalRequest[] memory);
 
-    function getFastWithdrawalRequest(bytes calldata request_id) external view returns (FastWithdrawalRequest memory);
-
-    function getFastWithdrawalRequestRemainingTicketsPrice(bytes memory request_id)
-        external
-        view
-        returns (uint256, uint256, string memory);
+    function getFastWithdrawalRequest(bytes calldata request_id) external view virtual returns (FastWithdrawalRequest memory);
 }

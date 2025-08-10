@@ -5,7 +5,7 @@ import {Test, console} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {
     CartesiSLDTradeableExit, FastWithdrawalRequest
-} from "../src/CartesiSLDTradeableExit/CartesiSLDTradeableExit.sol";
+} from "../src/Cartesi/CartesiSLDTradeableExit.sol";
 import {MockERC20} from "./MockERC20.sol";
 import {CartesiDappMock} from "./CartesiDappMock.sol";
 import {Proof, OutputValidityProof} from "@cartesi/rollups/contracts/dapp/ICartesiDApp.sol";
@@ -203,7 +203,6 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
         vm.prank(validator2);
         sld_tradeable_exit.withdraw(
             request2_id, 
-            fw_amount, 
             address(mockERC20), 
             voucher_payload,
             voucher_proof

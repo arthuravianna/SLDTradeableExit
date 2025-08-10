@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {Script, console} from "forge-std/Script.sol";
-import {CartesiSLDTradeableExit} from "../src/CartesiSLDTradeableExit/CartesiSLDTradeableExit.sol";
+import {CartesiSLDTradeableExit} from "../src/Cartesi/CartesiSLDTradeableExit.sol";
 
 contract CartesiSLDTradeableExitScript is Script {
     CartesiSLDTradeableExit public cartesiSldTradeableExit;

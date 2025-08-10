@@ -5,7 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import {
-    ITradeableExit,
+    TradeableExit,
     FastWithdrawalRequest,
     Position,
     FastWithdrawalRequestNotFound,
@@ -14,19 +14,20 @@ import {
     FundingAlreadyCompleted,
     NotEnoughBalanceToWithdrawal,
     FundingFastWithdrawal
-} from "../TradeableExit/ITradeableExit.sol";
+} from "../TradeableExit/TradeableExit.sol";
 
 // ticket error
 error TicketTransferFailed();
 error NotEnoughTickets();
 
 // Shared Liquidity Dynamic Tradeable Exit
-abstract contract SLDTradeableExit is ITradeableExit {
-    uint256 internal constant default_dispute_period = 604800; // one week
-
-    mapping(address => FastWithdrawalRequest[]) internal dapp_requests;
-    // {request_id: <request position in dapp requests>}
-    mapping(bytes => Position) internal id_to_request_position;
-
+abstract contract SLDTradeableExit is TradeableExit {
     mapping(bytes => mapping(address => uint256)) internal tickets;
+
+    function getFastWithdrawalRequestRemainingTicketsPrice(bytes memory request_id)
+    external
+    view
+    virtual
+    returns (uint256, uint256, string memory);
+
 }
