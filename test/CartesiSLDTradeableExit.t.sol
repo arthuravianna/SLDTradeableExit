@@ -198,14 +198,14 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
             context: ""
         });
 
+        bytes memory data = abi.encode(address(mockERC20), voucher_payload, voucher_proof);
+
         assertEq(mockERC20.balanceOf(requester2), 85616438356164383561, "1) mismatch requester2 mockERC20 balance AFTER funding");
         assertEq(mockERC20.balanceOf(validator2), 114383561643835616439, "2) mismatch validator2 mockERC20 balance BEFORE withdraw");
         vm.prank(validator2);
         sld_tradeable_exit.withdraw(
             request2_id, 
-            address(mockERC20), 
-            voucher_payload,
-            voucher_proof
+            data
         );
 
         uint256 fee = fw_amount-85616438356164383561;

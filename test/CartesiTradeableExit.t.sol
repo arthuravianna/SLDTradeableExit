@@ -121,13 +121,13 @@ contract SLDTradeableExitTest is Test {
 
         assertEq(mockERC20.balanceOf(requester1), fw_price, "1) mismatch requester1 mockERC20 balance AFTER funding");
         assertEq(mockERC20.balanceOf(validator1), validatorMockERC20InitialBalance-fw_price, "2) mismatch validator1 mockERC20 balance BEFORE withdraw");
+
+        bytes memory data = abi.encode(address(mockERC20), voucher_payload, voucher_proof);
         
         vm.prank(validator1);
         tradeable_exit.withdraw(
             request1_id, 
-            address(mockERC20), 
-            voucher_payload,
-            voucher_proof
+            data
         );
 
         uint256 fee = fw_amount-fw_price;

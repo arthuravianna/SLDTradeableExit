@@ -47,9 +47,7 @@ abstract contract TradeableExit {
 
     function withdraw(
         bytes calldata request_id,
-        address destination,
-        bytes calldata payload,
-        Proof calldata proof
+        bytes calldata data
     ) external virtual;
 
     function getRollupFastWithdrawalRequests(address rollup) external view virtual returns (FastWithdrawalRequest[] memory);

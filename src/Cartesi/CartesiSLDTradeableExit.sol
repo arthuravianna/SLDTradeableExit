@@ -147,13 +147,14 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
 
     function withdraw(
         bytes calldata request_id,
-        address destination,
-        bytes calldata payload,
-        Proof calldata proof
+        bytes calldata data
     ) external override {
         (address dapp,, uint256 input_index, uint256 voucher_index) =
             abi.decode(request_id, (address, address, uint256, uint256));
         FastWithdrawalRequest storage request = _getFastWithdrawalRequest(dapp, request_id);
+
+        (address destination, bytes memory payload, Proof memory proof) =
+            abi.decode(data, (address, bytes, Proof));
 
         // 1) Verify voucher payload
         require(destination == request.token, "Invalid voucher destination");
@@ -187,14 +188,19 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
         }
     }
 
-    function _decodeTransferPayload(bytes calldata payload) internal pure returns (address to, uint256 amount) {
+    function _decodeTransferPayload(bytes memory payload) internal pure returns (address to, uint256 amount) {
         require(payload.length == 4 + 32 + 32, "Invalid payload length");
 
-        bytes4 selector = bytes4(payload[:4]);
+        bytes4 selector;
+        assembly {
+            selector := mload(add(payload, 32))
+        }
         require(selector == bytes4(keccak256("transfer(address,uint256)")), "Not a transfer() call");
 
-        bytes memory params = payload[4:];
-        (to, amount) = abi.decode(params, (address, uint256));
+        assembly {
+            to := mload(add(payload, 36)) // selector(4 bytes) + address(32 bytes)
+            amount := mload(add(payload, 68))
+        }
     }
 
     function _removeFastWithdrawalRequest(address dapp, bytes memory request_id) internal {
