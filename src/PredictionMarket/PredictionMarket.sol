@@ -51,7 +51,7 @@ contract PredictionMarket {
         require(market.open == 1, "Error: Market is closed!");
 
         IERC20 erc20 = IERC20(market.token);
-        bool success = erc20.transfer(address(this), volume * market.price);
+        bool success = erc20.transferFrom(msg.sender, address(this), volume * market.price);
         require(success, "Error: Failed to buy sets!");
         
         market.ok[msg.sender] += volume;
@@ -62,8 +62,8 @@ contract PredictionMarket {
         Market storage market = markets[market_id];
         require(market.open == 1, "Error: Market is closed!");
 
-        require(volume >= market.ok[msg.sender], "Error: Not enough 'OK' volume to sell");
-        require(volume >= market.fail[msg.sender], "Error: Not enough 'FAIL' volume to sell");
+        require(volume <= market.ok[msg.sender], "Error: Not enough 'OK' volume to sell");
+        require(volume <= market.fail[msg.sender], "Error: Not enough 'FAIL' volume to sell");
 
         IERC20 erc20 = IERC20(market.token);
         bool success = erc20.transfer(msg.sender, volume * market.price);
@@ -75,10 +75,34 @@ contract PredictionMarket {
 
     // seller signs a message with the value for a specific set
     // buyer calls exchange function with signed messaged as parameter.
-    function exchange(bytes calldata market_id, address seller, uint256 price, bytes32 sellIntentionMessage) public {
+    function exchange(bytes calldata market_id, uint8 set_id, address seller, 
+     uint256 volume, uint256 payment,
+     bytes calldata sellIntentionSignature) public {
         Market storage market = markets[market_id];
 
-        // TODO
+        require(market.open == 1, "Error: Unable to exchange, market is closed!");
+        require(market.timeout >= block.timestamp, "Error: Unable to exchange, market timeout!");
+
+        bytes32 sellIntentionMessage = keccak256(abi.encodePacked(set_id, volume, payment));
+
+        require(_verifySignature(sellIntentionMessage, seller, sellIntentionSignature), 
+         "Error: Invalid signature");
+
+        IERC20 erc20 = IERC20(market.token);
+        bool success = erc20.transfer(seller, payment);
+        require(success, "Error: Failed to execute exchange payment!");
+
+        if (set_id == 0) { // sell ok set
+            require(market.ok[seller] >= volume, "Error: Failed to execute exchange volume!");
+            market.ok[seller] -= volume;
+            market.ok[msg.sender] += volume;
+        } else if (set_id == 1) { // sell fail set
+            require(market.fail[seller] >= volume, "Error: Failed to execute exchange volume!");
+            market.fail[seller] -= volume;
+            market.fail[msg.sender] += volume;
+        } else {
+            revert("Error: Invalid set!");
+        }
     }
 
     function closeMarket(bytes calldata market_id) public {
@@ -106,7 +130,7 @@ contract PredictionMarket {
         address signer,
         bytes memory signature
     ) private pure returns (bool) {
-        bytes32 hash = message.toEthSignedMessageHash();
+        bytes32 hash = message.toEthSignedMessageHash(); // add the prefix '\x19Ethereum Signed Message:\n'
         address recoveredSigner = hash.recover(signature);
         return signer == recoveredSigner;
     }
