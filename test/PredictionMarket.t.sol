@@ -20,12 +20,24 @@ contract PredictionMarketTest is Test {
     address buyer = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
     uint256 erc20Balance = 10000*10**18;
 
+    uint256 constant mock_volume = 1000;
+    bytes constant mock_market_id0 = abi.encode(address(0), address(0), 0, 0, 0);
+    bytes constant mock_market_id1 = abi.encode(address(1), address(0), 0, 0, 0);
+
     function setUp() public {
         erc20.mint(seller, erc20Balance);
         erc20.mint(buyer, erc20Balance);
 
         erc20.approve(seller, address(predictionMarket), erc20Balance);
         erc20.approve(buyer, address(predictionMarket), erc20Balance);
+        
+        vm.warp(0);
+        predictionMarket.openMarket(mock_market_id0, address(erc20));
+
+        predictionMarket.openMarket(mock_market_id1, address(erc20));
+        vm.prank(seller);
+        predictionMarket.buyCompleteSets(mock_market_id1, mock_volume);
+
 
         console.log("Prediction Market: ", address(predictionMarket));
         console.log("MockERC20: ", address(erc20));
@@ -47,47 +59,38 @@ contract PredictionMarketTest is Test {
         assertEq(seller_failBalance, 0, "Error: failBalance mismatch!");
     }
 
-    function testFuzz_BuyCompleteSets(bytes calldata market_id) public {
-        predictionMarket.openMarket(market_id, address(erc20));
-
+    function test_BuyCompleteSets() public {
         vm.prank(buyer);
-        predictionMarket.buyCompleteSets(market_id, 1000);
+        predictionMarket.buyCompleteSets(mock_market_id0, mock_volume);
 
-        assertEq(erc20.balanceOf(address(predictionMarket)), 1000, "Error: ERC20 Prediction Market balance mismatch!");
+        // 2 * volume because we have two markets
+        assertEq(erc20.balanceOf(address(predictionMarket)), 2*mock_volume, "Error: ERC20 Prediction Market balance mismatch!");
 
         (,,, 
-        uint256 buyer_okBalance, uint256 buyer_failBalance) = predictionMarket.getMarketInfo(market_id, buyer);
+        uint256 buyer_okBalance, uint256 buyer_failBalance) = predictionMarket.getMarketInfo(mock_market_id0, buyer);
 
-        assertEq(buyer_okBalance, 1000, "Error: CompleteSet buyer okBalance mismatch!");
-        assertEq(buyer_failBalance, 1000, "Error: CompleteSet buyer failBalance mismatch!");
+        assertEq(buyer_okBalance, mock_volume, "Error: CompleteSet buyer okBalance mismatch!");
+        assertEq(buyer_failBalance, mock_volume, "Error: CompleteSet buyer failBalance mismatch!");
     }
 
-    function testFuzz_SellCompleteSets(bytes calldata market_id) public {
-        predictionMarket.openMarket(market_id, address(erc20));
-
-        vm.startPrank(seller);
-        predictionMarket.buyCompleteSets(market_id, 1000);
-        predictionMarket.sellCompleteSets(market_id, 1000);
-        vm.stopPrank();
+    function test_SellCompleteSets() public {
+        vm.prank(seller);
+        predictionMarket.sellCompleteSets(mock_market_id1, mock_volume);
 
         assertEq(erc20.balanceOf(address(predictionMarket)), 0, "Error: ERC20 Prediction Market balance mismatch!");
         assertEq(erc20.balanceOf(seller), erc20Balance, "Error: ERC20 seller balance mismatch!");
 
         (,,, 
-        uint256 seller_okBalance, uint256 seller_failBalance) = predictionMarket.getMarketInfo(market_id, seller);
+        uint256 seller_okBalance, uint256 seller_failBalance) = predictionMarket.getMarketInfo(mock_market_id1, seller);
 
         assertEq(seller_okBalance, 0, "Error: CompleteSet seller okBalance mismatch!");
         assertEq(seller_failBalance, 0, "Error: CompleteSet seller failBalance mismatch!");
     }
 
-    function test_Exchange(bytes calldata market_id) public {
-        predictionMarket.openMarket(market_id, address(erc20));
+    function test_Exchange() public {
         uint8 set_id = 1; // fail
         uint256 volume = 1000;
         uint256 payment = 1000;
-
-        vm.prank(seller);
-        predictionMarket.buyCompleteSets(market_id, volume);
 
         vm.prank(buyer);
         // seller intention message && signature
@@ -95,10 +98,10 @@ contract PredictionMarketTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPrivateKey, sellIntentionMessage);
         bytes memory sellIntentionSignature = abi.encodePacked(r, s, v);
 
-        predictionMarket.exchange(market_id, set_id, seller, volume, payment, sellIntentionSignature);
+        predictionMarket.exchange(mock_market_id1, set_id, seller, volume, payment, sellIntentionSignature);
 
-        (,,,uint256 seller_okBalance, uint256 seller_failBalance) = predictionMarket.getMarketInfo(market_id, seller);
-        (,,,uint256 buyer_okBalance, uint256 buyer_failBalance) = predictionMarket.getMarketInfo(market_id, buyer);
+        (,,,uint256 seller_okBalance, uint256 seller_failBalance) = predictionMarket.getMarketInfo(mock_market_id1, seller);
+        (,,,uint256 buyer_okBalance, uint256 buyer_failBalance) = predictionMarket.getMarketInfo(mock_market_id1, buyer);
         assertEq(seller_okBalance, volume, "Error: seller okBalance mismatch!");
         assertEq(seller_failBalance, 0, "Error: seller failBalance mismatch!");
         assertEq(buyer_okBalance, 0, "Error: buyer okBalance mismatch!");
@@ -106,20 +109,10 @@ contract PredictionMarketTest is Test {
     }
 
     function test_CloseMarket() public {
-        address rollup = address(0);
-        address requester = address(0);
-        uint256 price = 0;
-        uint256 input_index = 0;
-        uint256 voucher_index = 0;
-        bytes memory market_id = abi.encode(rollup, requester, price, input_index, voucher_index);
-        
-        vm.warp(0);
-        predictionMarket.openMarket(market_id, address(erc20));
-
         vm.warp(market_duration+1);
-        predictionMarket.closeMarket(market_id);
+        predictionMarket.closeMarket(mock_market_id0);
 
-        (uint8 open,,,,) = predictionMarket.getMarketInfo(market_id, seller);
+        (uint8 open,,,,) = predictionMarket.getMarketInfo(mock_market_id0, seller);
 
         assertEq(open, 0, "Error: Prediction Market open mismatch!");
     }
