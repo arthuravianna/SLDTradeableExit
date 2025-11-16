@@ -30,27 +30,27 @@ error FundingAlreadyCompleted();
 error NotEnoughBalanceToWithdrawal();
 
 // Events
-event FundingFastWithdrawal(bytes request_id, address token, uint256 amount);
+event FundingFastWithdrawal(bytes requestId, address token, uint256 amount);
 
 // Shared Liquidity Dynamic Tradeable Exit Interface
 abstract contract TradeableExit {
-    uint256 internal constant default_dispute_period = 604800; // one week
+    uint256 internal constant DEFAULT_DISPUTE_PERIOD = 604800; // one week
 
-    mapping(address => FastWithdrawalRequest[]) internal dapp_requests;
-    // {request_id: <request position in dapp/rollup requests>}
-    mapping(bytes => Position) internal id_to_request_position;
+    mapping(address => FastWithdrawalRequest[]) internal dappRequests;
+    // {_requestId: <request position in dapp/rollup requests>}
+    mapping(bytes => Position) internal idToRequestPosition;
 
-    function requestFastWithdrawal(bytes calldata request_id, address token, uint256 amount, uint256 input_timestamp)
+    function requestFastWithdrawal(bytes calldata _requestId, address _token, uint256 _amount, uint256 _inputTimestamp)
         external virtual;
 
-    function fundFastWithdrawalRequest(bytes calldata request_id, IERC20 token, uint256 amount) external virtual;
+    function fundFastWithdrawalRequest(bytes calldata _requestId, IERC20 _token, uint256 _amount) external virtual;
 
     function withdraw(
-        bytes calldata request_id,
-        bytes calldata data
+        bytes calldata _requestId,
+        bytes calldata _data
     ) external virtual;
 
-    function getRollupFastWithdrawalRequests(address rollup) external view virtual returns (FastWithdrawalRequest[] memory);
+    function getRollupFastWithdrawalRequests(address _rollup) external view virtual returns (FastWithdrawalRequest[] memory);
 
-    function getFastWithdrawalRequest(bytes calldata request_id) external view virtual returns (FastWithdrawalRequest memory);
+    function getFastWithdrawalRequest(bytes calldata _requestId) external view virtual returns (FastWithdrawalRequest memory);
 }
