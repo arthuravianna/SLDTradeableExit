@@ -7,12 +7,26 @@ import {CartesiSLDTradeableExit, FastWithdrawalRequest} from "../src/Cartesi/Car
 import {MockERC20} from "./MockERC20.sol";
 import {CartesiDappMock} from "./CartesiDappMock.sol";
 import {Proof, OutputValidityProof} from "@cartesi/rollups/contracts/dapp/ICartesiDApp.sol";
+import {InputBox} from "@cartesi/rollups/contracts/inputs/InputBox.sol";
+import {LibInput} from "@cartesi/rollups/contracts/library/LibInput.sol";
 
 contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
     CartesiSLDTradeableExit public sld_tradeable_exit =
         new CartesiSLDTradeableExit();
     MockERC20 public mockERC20;
-    CartesiDappMock public cartesiDappMock;
+    CartesiDappMock public cartesiDappMock = new CartesiDappMock();
+
+    address FAST_WITHDRAWAL_REQUESTER = makeAddr("FastWithdrawalRequester");
+    address VALIDATOR = makeAddr("Validator");
+    uint256 constant FAST_WITHDRAWAL_TIMESTAMP = 0;
+    uint256 constant FAST_WITHDRAWAL_REQUEST_AMOUNT = 1e20; // 100 tokens
+    uint256 constant INPUT_INDEX = 0;
+    uint256 constant VOUCHER_INDEX = 0;
+    uint256 constant FAST_WITHDRAWAL_REQUESTER_BALANCE_AFTER_FUNDING_5MIN =
+        85616438356164383561; //  85.616 tokens
+    uint256 constant VALIDATOR_MOCK_ERC20_INITIAL_BALANCE = 1e21; // 1000 tokens
+    uint256 constant VALIDATOR_MOCK_ERC20_BALANCE_AFTER_FUNDING_5MIN =
+        914383561643835616439; // 1000 tokens - 85.616 tokens
 
     address requester0 = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC;
     address requester1 = 0x90F79bf6EB2c4f870365E785982E1f101E93b906;
@@ -32,13 +46,32 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
     uint256 fw_request1_timestamp = 3600;
     bytes request2_id;
     uint256 fw_request2_timestamp = 0;
+    bytes REQUEST_ID =
+        abi.encode(
+            address(cartesiDappMock),
+            FAST_WITHDRAWAL_REQUESTER,
+            INPUT_INDEX,
+            VOUCHER_INDEX
+        );
+    uint256 constant BLOCK_NUMBER = 0;
+    address constant INPUT_BOX_ADDRESS =
+        0x59b22D57D4f067708AB0c00552767405926dc768;
+    bytes constant WITHDRAWAL_INPUT =
+        "0x7b226f70223a20227769746864726177616c222c2022746f6b656e223a2022307864323463326265333865363333343236356362653134623637643533333566363431653539623639222c2022616d6f756e74223a203130303030303030303030303030303030303030307d";
 
     function setUp() public {
         mockERC20 = new MockERC20();
+        mockERC20.mint(VALIDATOR, VALIDATOR_MOCK_ERC20_INITIAL_BALANCE);
         mockERC20.mint(validator0, validatorMockERC20InitialBalance);
         mockERC20.mint(validator1, validatorMockERC20InitialBalance);
         mockERC20.mint(validator2, validatorMockERC20InitialBalance);
         mockERC20.mint(address(sld_tradeable_exit), 2 * fw_amount); // sld_tradeable_exit needs balance to test withdrawal
+
+        mockERC20.approve(
+            VALIDATOR,
+            address(sld_tradeable_exit),
+            VALIDATOR_MOCK_ERC20_INITIAL_BALANCE
+        );
 
         mockERC20.approve(
             validator0,
@@ -55,8 +88,6 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
             address(sld_tradeable_exit),
             validatorMockERC20InitialBalance
         );
-
-        cartesiDappMock = new CartesiDappMock();
 
         request0_id = abi.encode(
             address(cartesiDappMock),
@@ -113,6 +144,44 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
         console.log("SLDTradeableExit:", address(sld_tradeable_exit));
         console.log("MockERC20:", address(mockERC20));
         console.log("CartesiDappMock:", address(cartesiDappMock));
+    }
+
+    modifier requestFastWithdrawalModifier() {
+        vm.prank(FAST_WITHDRAWAL_REQUESTER);
+        _;
+    }
+
+    modifier requestAndFundFastWithdrawalModifier() {
+        vm.startPrank(FAST_WITHDRAWAL_REQUESTER);
+        vm.warp(FAST_WITHDRAWAL_TIMESTAMP);
+        vm.roll(BLOCK_NUMBER);
+        // 1) addInput to Cartesi DApp's InputBox
+        bytes memory bytecode = vm.getDeployedCode(
+            "@cartesi/rollups/contracts/inputs/InputBox.sol:InputBox"
+        );
+        vm.etch(INPUT_BOX_ADDRESS, bytecode);
+        InputBox inputBox = InputBox(INPUT_BOX_ADDRESS);
+        inputBox.addInput(address(cartesiDappMock), WITHDRAWAL_INPUT);
+
+        // 2) request fast withdrawal
+        sld_tradeable_exit.requestFastWithdrawal(
+            REQUEST_ID,
+            address(mockERC20),
+            FAST_WITHDRAWAL_REQUEST_AMOUNT,
+            FAST_WITHDRAWAL_TIMESTAMP
+        );
+        vm.stopPrank();
+
+        // 3) fund fast withdrawal
+        vm.prank(VALIDATOR);
+        uint256 fakeTime = FAST_WITHDRAWAL_TIMESTAMP + 300; // 5 minutes later
+        vm.warp(fakeTime);
+        sld_tradeable_exit.fundFastWithdrawalRequest(
+            REQUEST_ID,
+            mockERC20,
+            FAST_WITHDRAWAL_REQUEST_AMOUNT
+        );
+        _;
     }
 
     function test_CalculateTicketProportion() public {
@@ -298,7 +367,10 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
         assertEq(request.tickets_bought, fw_amount, "mismatch tickets bought");
     }
 
-    function test_WithdrawFastWithdrawal0() public {
+    function test_WithdrawFastWithdrawal0()
+        public
+        requestAndFundFastWithdrawalModifier
+    {
         bytes
             memory voucher_payload = hex"a9059cbb0000000000000000000000005615deb798bb3e4dfa0139dfa1b3d433cc23b72f0000000000000000000000000000000000000000000000056bc75e2d63100000";
         // empty voucher proof
@@ -316,30 +388,34 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
             context: ""
         });
 
+        bytes32 keccakInput = keccak256(WITHDRAWAL_INPUT);
         bytes memory data = abi.encode(
             address(mockERC20),
             voucher_payload,
-            voucher_proof
+            voucher_proof,
+            keccakInput,
+            BLOCK_NUMBER
         );
 
         assertEq(
-            mockERC20.balanceOf(requester2),
-            85616438356164383561,
-            "1) mismatch requester2 mockERC20 balance AFTER funding"
+            mockERC20.balanceOf(FAST_WITHDRAWAL_REQUESTER),
+            FAST_WITHDRAWAL_REQUESTER_BALANCE_AFTER_FUNDING_5MIN,
+            "1) mismatch FAST_WITHDRAWAL_REQUESTER mockERC20 balance AFTER funding"
         );
         assertEq(
-            mockERC20.balanceOf(validator2),
-            114383561643835616439,
-            "2) mismatch validator2 mockERC20 balance BEFORE withdraw"
+            mockERC20.balanceOf(VALIDATOR),
+            VALIDATOR_MOCK_ERC20_BALANCE_AFTER_FUNDING_5MIN,
+            "2) mismatch VALIDATOR mockERC20 balance BEFORE withdraw"
         );
-        vm.prank(validator2);
-        sld_tradeable_exit.withdraw(request2_id, data);
+        vm.prank(VALIDATOR);
+        sld_tradeable_exit.withdraw(REQUEST_ID, data);
 
-        uint256 fee = fw_amount - 85616438356164383561;
+        uint256 fee = FAST_WITHDRAWAL_REQUEST_AMOUNT -
+            FAST_WITHDRAWAL_REQUESTER_BALANCE_AFTER_FUNDING_5MIN;
         assertEq(
-            mockERC20.balanceOf(validator2),
-            validatorMockERC20InitialBalance + fee,
-            "3) mismatch validator2 mockERC20 balance AFTER withdraw"
+            mockERC20.balanceOf(VALIDATOR),
+            VALIDATOR_MOCK_ERC20_INITIAL_BALANCE + fee,
+            "3) mismatch VALIDATOR mockERC20 balance AFTER withdraw"
         );
     }
 }
