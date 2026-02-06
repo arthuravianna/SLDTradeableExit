@@ -58,10 +58,13 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
             VALIDATOR_MOCK_ERC20_INITIAL_BALANCE
         );
 
+        // sldTradeableExit needs balance to test withdrawal
+        // this is the value available in the contract after the delayed withdrawal is executed,
+        // so we mint this amount to the contract before testing the withdrawal
         mockERC20.mint(
             address(sldTradeableExit),
-            2 * FAST_WITHDRAWAL_REQUEST_AMOUNT
-        ); // sldTradeableExit needs balance to test withdrawal
+            FAST_WITHDRAWAL_REQUEST_AMOUNT
+        );
 
         console.log("SLDTradeableExit:", address(sldTradeableExit));
         console.log("MockERC20:", address(mockERC20));
@@ -316,9 +319,9 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
         fundFastWithdrawalModifier
     {
         bytes
-            memory voucher_payload = hex"a9059cbb0000000000000000000000005615deb798bb3e4dfa0139dfa1b3d433cc23b72f0000000000000000000000000000000000000000000000056bc75e2d63100000";
+            memory voucherPayload = hex"a9059cbb0000000000000000000000005615deb798bb3e4dfa0139dfa1b3d433cc23b72f0000000000000000000000000000000000000000000000056bc75e2d63100000";
         // empty voucher proof
-        Proof memory voucher_proof = Proof({
+        Proof memory voucherProof = Proof({
             validity: OutputValidityProof({
                 inputIndexWithinEpoch: 0,
                 outputIndexWithinInput: 0,
@@ -335,8 +338,8 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
         bytes32 keccakInput = keccak256(WITHDRAWAL_INPUT);
         bytes memory data = abi.encode(
             address(mockERC20),
-            voucher_payload,
-            voucher_proof,
+            voucherPayload,
+            voucherProof,
             keccakInput,
             BLOCK_NUMBER
         );
