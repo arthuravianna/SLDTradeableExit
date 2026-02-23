@@ -6,15 +6,20 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ICartesiDApp, Proof} from "@cartesi/rollups/contracts/dapp/ICartesiDApp.sol";
 import {IConsensus} from "@cartesi/rollups/contracts/consensus/IConsensus.sol";
+import {InputBox} from "@cartesi/rollups/contracts/inputs/InputBox.sol";
 import "../SLDTradeableExit/SLDTradeableExit.sol";
 
 error FastWithdrawalRequesterMismatch();
 error VoucherIsNotAWithdrawal();
 error FailedToExecuteVoucher();
+error InvalidWithdrawalRequest(bytes32 expected, bytes32 actual);
 
 // Shared Liquidity Dynamic Tradeable Exit
 contract CartesiSLDTradeableExit is SLDTradeableExit {
     using SafeERC20 for IERC20;
+
+    InputBox private immutable INPUT_BOX =
+        InputBox(0x59b22D57D4f067708AB0c00552767405926dc768);
 
     function requestFastWithdrawal(
         bytes calldata _requestId,
@@ -182,25 +187,52 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
         emit FundingFastWithdrawal(_requestId, address(_token), transferAmount);
     }
 
+    /**
+     *
+     * @param _requestId requestId abi encodes
+     * dapp address, fast withdrawal requester adderss,
+     * inputIndex, and voucherIndex
+     * @param _data data abi encodes
+     * voucher's destination address, payload, and proof.
+     * It also encodes inputKeccak and blockNumber
+     */
     function withdraw(
         bytes calldata _requestId,
         bytes calldata _data
     ) external override {
-        (address dapp, , uint256 input_index, uint256 voucher_index) = abi
-            .decode(_requestId, (address, address, uint256, uint256));
+        (
+            address dapp,
+            address requester,
+            uint256 inputIndex,
+            uint256 voucherIndex
+        ) = abi.decode(_requestId, (address, address, uint256, uint256));
         FastWithdrawalRequest storage request = _getFastWithdrawalRequest(
             dapp,
             _requestId
         );
 
-        (address destination, bytes memory payload, Proof memory proof) = abi
-            .decode(_data, (address, bytes, Proof));
+        // 0) Verify if fast withdrawal request is legit
+        _validateWithdrawalRequest(
+            dapp,
+            requester,
+            request.timestamp,
+            inputIndex,
+            _data // inputKeccak and blockNumber are inside _data
+        );
 
-        // 1) Verify voucher payload
+        (
+            address destination,
+            bytes memory payload,
+            Proof memory proof,
+            ,
+
+        ) = abi.decode(_data, (address, bytes, Proof, bytes32, uint256));
+
         require(destination == request.token, "Invalid voucher destination");
 
         {
             // scope to avoid stack too deep errors
+            // 1) Verify voucher payload
             (address to, uint256 to_amount) = _decodeTransferPayload(payload);
             require(to == address(this), "Invalid voucher payload: 'to'");
             require(
@@ -210,7 +242,7 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
 
             // 2) Was voucher executed?
             ICartesiDApp cartesi_dapp = ICartesiDApp(dapp);
-            if (!cartesi_dapp.wasVoucherExecuted(input_index, voucher_index)) {
+            if (!cartesi_dapp.wasVoucherExecuted(inputIndex, voucherIndex)) {
                 bool success = cartesi_dapp.executeVoucher(
                     destination,
                     payload,
@@ -232,6 +264,52 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
         // 4) Delete request from list
         if (request.redeemed >= request.amount) {
             _removeFastWithdrawalRequest(dapp, _requestId);
+        }
+    }
+
+    /**
+     *
+     * @param _dapp rollup address
+     * @param _requester withdrawal owner
+     * @param _requestTimestamp L2 withdrawal request timestamp (block.timestamp)
+     * @param _inputIndex index of the input (L2 withdrawal) in the input box
+     * @param _data _data contains the inputKeccak and blockNumber used to
+     *              reconstruct the input hash and compare it to the one stored
+     *              in the input box
+     * @notice Cartesi Rollups constructs an input hash from the input data
+     *         (inputKeccak), the block number, timestamp, sender address and
+     *         input index. This function reconstructs the input hash and
+     *         compares it to the one stored in the input box to validate the
+     *         owner of the withdrawal request. If someone tries to request a
+     *         withdrawal on behalf of another user, the input hash will not
+     *         match and the function will revert.
+     */
+    function _validateWithdrawalRequest(
+        address _dapp,
+        address _requester,
+        uint256 _requestTimestamp,
+        uint256 _inputIndex,
+        bytes calldata _data
+    ) internal view {
+        (, , , bytes32 inputKeccak, uint256 blockNumber) = abi.decode(
+            _data,
+            (address, bytes, Proof, bytes32, uint256)
+        );
+
+        bytes32 metadataKeccak = keccak256(
+            abi.encode(
+                _requester,
+                blockNumber,
+                _requestTimestamp,
+                0,
+                _inputIndex
+            )
+        );
+
+        bytes32 inputHash = keccak256(abi.encode(metadataKeccak, inputKeccak));
+        bytes32 storedInputHash = INPUT_BOX.getInputHash(_dapp, _inputIndex);
+        if (inputHash != storedInputHash) {
+            revert InvalidWithdrawalRequest(storedInputHash, inputHash);
         }
     }
 
