@@ -9,7 +9,7 @@ import {CartesiDappMock} from "./CartesiDappMock.sol";
 import {Proof, OutputValidityProof} from "@cartesi/rollups/contracts/dapp/ICartesiDApp.sol";
 import {InputBox} from "@cartesi/rollups/contracts/inputs/InputBox.sol";
 
-contract SLDTradeableExitTest is Test {
+contract CartesiTradeableExitTest is Test {
     CartesiTradeableExit public tradeableExit = new CartesiTradeableExit();
     MockERC20 public mockERC20;
     CartesiDappMock public cartesiDappMock = new CartesiDappMock();
@@ -18,7 +18,6 @@ contract SLDTradeableExitTest is Test {
     address VALIDATOR = makeAddr("Validator");
     uint256 constant VALIDATOR_MOCK_ERC20_INITIAL_BALANCE = 1e21; // 1000 tokens
     uint256 constant FAST_WITHDRAWAL_REQUEST_AMOUNT = 1e20; // 100 tokens
-    uint256 constant FAST_WITHDRAWAL_REQUEST_PRICE = 9e19; // 90 tokens
     uint256 constant FAST_WITHDRAWAL_TIMESTAMP = 0;
     uint256 constant INPUT_INDEX = 0;
     uint256 constant VOUCHER_INDEX = 0;
@@ -26,7 +25,6 @@ contract SLDTradeableExitTest is Test {
         abi.encode(
             address(cartesiDappMock),
             FAST_WITHDRAWAL_REQUESTER,
-            FAST_WITHDRAWAL_REQUEST_PRICE,
             INPUT_INDEX,
             VOUCHER_INDEX
         );
@@ -44,6 +42,8 @@ contract SLDTradeableExitTest is Test {
             address(tradeableExit),
             VALIDATOR_MOCK_ERC20_INITIAL_BALANCE
         );
+        // give some ether to the requester to pay for the flat fee
+        vm.deal(FAST_WITHDRAWAL_REQUESTER, 1 ether);
 
         // tradeableExit needs balance to test withdrawal
         // this is the value available in the contract after the delayed withdrawal is executed,
@@ -68,7 +68,9 @@ contract SLDTradeableExitTest is Test {
         inputBox.addInput(address(cartesiDappMock), WITHDRAWAL_INPUT);
 
         // 2) request fast withdrawal
-        tradeableExit.requestFastWithdrawal(
+        tradeableExit.requestFastWithdrawal{
+            value: tradeableExit.DEFAULT_FLAT_FEE()
+        }(
             REQUEST_ID,
             address(mockERC20),
             FAST_WITHDRAWAL_REQUEST_AMOUNT,
@@ -80,11 +82,7 @@ contract SLDTradeableExitTest is Test {
 
     modifier fundFastWithdrawalModifier() {
         vm.prank(VALIDATOR);
-        tradeableExit.fundFastWithdrawalRequest(
-            REQUEST_ID,
-            mockERC20,
-            FAST_WITHDRAWAL_REQUEST_AMOUNT
-        );
+        tradeableExit.fundFastWithdrawalRequest(REQUEST_ID, mockERC20, 0);
         _;
     }
 
@@ -96,23 +94,19 @@ contract SLDTradeableExitTest is Test {
         uint256 voucherIndex,
         uint256 inputTimestamp
     ) public {
-        vm.prank(FAST_WITHDRAWAL_REQUESTER);
+        vm.startPrank(FAST_WITHDRAWAL_REQUESTER);
         // assume a "safe" value for amount
         vm.assume(amount < 1e36);
 
         bytes memory requestId = abi.encode(
             dapp,
             FAST_WITHDRAWAL_REQUESTER,
-            FAST_WITHDRAWAL_REQUEST_PRICE,
             inputIndex,
             voucherIndex
         );
-        tradeableExit.requestFastWithdrawal(
-            requestId,
-            token,
-            amount,
-            inputTimestamp
-        );
+        tradeableExit.requestFastWithdrawal{
+            value: tradeableExit.DEFAULT_FLAT_FEE()
+        }(requestId, token, amount, inputTimestamp);
 
         FastWithdrawalRequest memory requestExpected = FastWithdrawalRequest(
             requestId,
@@ -124,6 +118,8 @@ contract SLDTradeableExitTest is Test {
         );
         FastWithdrawalRequest memory requestActual = tradeableExit
             .getFastWithdrawalRequest(requestId);
+
+        vm.stopPrank();
 
         assertEq(requestActual.id, requestId, "requestId mismatch");
         assertEq(
@@ -144,11 +140,8 @@ contract SLDTradeableExitTest is Test {
 
         address randomRequester = makeAddr("RandomRequester");
         bytes memory requestId = abi.encode(address(0), randomRequester, 0, 0);
-        tradeableExit.fundFastWithdrawalRequest(
-            requestId,
-            mockERC20,
-            FAST_WITHDRAWAL_REQUEST_PRICE
-        );
+
+        tradeableExit.fundFastWithdrawalRequest(requestId, mockERC20, 0);
     }
 
     function test_FundFastWithdrawalRequest0()
@@ -157,17 +150,23 @@ contract SLDTradeableExitTest is Test {
     {
         vm.prank(VALIDATOR);
 
-        tradeableExit.fundFastWithdrawalRequest(
-            REQUEST_ID,
-            mockERC20,
-            FAST_WITHDRAWAL_REQUEST_PRICE
-        );
+        tradeableExit.fundFastWithdrawalRequest(REQUEST_ID, mockERC20, 0);
 
         // assert withdrawal recipient
         assertEq(
             tradeableExit.getRecipient(REQUEST_ID),
             VALIDATOR,
             "mismatch withdrawal recipient"
+        );
+
+        // assert request is funded
+        assertEq(
+            mockERC20.balanceOf(FAST_WITHDRAWAL_REQUESTER),
+            tradeableExit.getWithdrawalPrice(
+                FAST_WITHDRAWAL_REQUEST_AMOUNT,
+                tradeableExit.BPS()
+            ),
+            "mismatch amount funded"
         );
     }
 
@@ -202,23 +201,25 @@ contract SLDTradeableExitTest is Test {
             BLOCK_NUMBER
         );
 
+        uint256 withdrawalPrice = tradeableExit.getWithdrawalPrice(
+            FAST_WITHDRAWAL_REQUEST_AMOUNT,
+            tradeableExit.BPS()
+        );
         assertEq(
             mockERC20.balanceOf(FAST_WITHDRAWAL_REQUESTER),
-            FAST_WITHDRAWAL_REQUEST_PRICE,
+            withdrawalPrice,
             "1) mismatch FAST_WITHDRAWAL_REQUESTER mockERC20 balance AFTER funding"
         );
         assertEq(
             mockERC20.balanceOf(VALIDATOR),
-            VALIDATOR_MOCK_ERC20_INITIAL_BALANCE -
-                FAST_WITHDRAWAL_REQUEST_PRICE,
+            VALIDATOR_MOCK_ERC20_INITIAL_BALANCE - withdrawalPrice,
             "2) mismatch VALIDATOR mockERC20 balance BEFORE withdraw"
         );
 
         vm.prank(VALIDATOR);
         tradeableExit.withdraw(REQUEST_ID, data);
 
-        uint256 fee = FAST_WITHDRAWAL_REQUEST_AMOUNT -
-            FAST_WITHDRAWAL_REQUEST_PRICE;
+        uint256 fee = FAST_WITHDRAWAL_REQUEST_AMOUNT - withdrawalPrice;
         assertEq(
             mockERC20.balanceOf(VALIDATOR),
             VALIDATOR_MOCK_ERC20_INITIAL_BALANCE + fee,

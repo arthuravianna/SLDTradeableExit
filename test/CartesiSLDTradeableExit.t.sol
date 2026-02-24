@@ -113,7 +113,7 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
         uint256 fakeTime = 3600; // 1 hour
         vm.warp(fakeTime);
 
-        uint256 actualProportion = _calculateTicketProportion(requestTimestamp);
+        uint256 actualProportion = _calculateDecaying(requestTimestamp);
         uint256 initialProportion = 1168000000000000000; // 1.168;
         uint256 proportionDecayPerHour = 1000000000000000; // 0.001
         uint256 expectedProportion = initialProportion - proportionDecayPerHour; // 1.168 - 0.001
@@ -307,9 +307,9 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
         FastWithdrawalRequest memory request = sldTradeableExit
             .getFastWithdrawalRequest(REQUEST_ID);
         assertEq(
-            request.tickets_bought,
+            request.amount_funded,
             FAST_WITHDRAWAL_REQUEST_AMOUNT,
-            "mismatch tickets bought"
+            "mismatch amount funded"
         );
     }
 

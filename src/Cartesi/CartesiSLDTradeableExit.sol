@@ -26,7 +26,7 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
         address _token,
         uint256 _amount,
         uint256 _inputTimestamp
-    ) external override {
+    ) external payable override {
         (address rollup, address requester, , ) = abi.decode(
             _requestId,
             (address, address, uint256, uint256)
@@ -37,8 +37,8 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
             id: _requestId,
             token: _token,
             amount: _amount,
-            tickets_bought: 0,
-            redeemed: 0,
+            amount_funded: 0,
+            amount_redeemed: 0,
             timestamp: _inputTimestamp
         });
 
@@ -52,14 +52,14 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
             );
         }
 
-        tickets[_requestId][msg.sender] = _amount;
+        recipients[_requestId][msg.sender] = _amount;
     }
 
     function getTickets(
         bytes calldata _requestId,
         address _account
     ) public view returns (uint256) {
-        return tickets[_requestId][_account];
+        return recipients[_requestId][_account];
     }
 
     function getRollupFastWithdrawalRequests(
@@ -70,7 +70,7 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
 
     function getFastWithdrawalRequest(
         bytes calldata _requestId
-    ) external view override returns (FastWithdrawalRequest memory) {
+    ) external view returns (FastWithdrawalRequest memory) {
         (address dapp, , , ) = abi.decode(
             _requestId,
             (address, address, uint256, uint256)
@@ -78,7 +78,7 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
         Position memory position = idToRequestPosition[_requestId];
 
         if (!position.exists) {
-            revert FastWithdrawalRequestNotFound();
+            revert FastWithdrawalRequestNotFound(_requestId);
         }
 
         return dappRequests[dapp][position.pos];
@@ -98,35 +98,21 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
 
         ERC20 token = ERC20(request.token);
 
-        uint256 remaining = request.amount - request.tickets_bought;
-        uint256 ticket_proportion = _calculateTicketProportion(
-            request.timestamp
-        );
+        uint256 remaining = request.amount - request.amount_funded;
+        uint256 ticket_proportion = _calculateDecaying(request.timestamp);
         uint256 token_to_ticket = remaining * ticket_proportion;
 
         return (remaining, token_to_ticket, token.symbol());
     }
 
-    function _getFastWithdrawalRequest(
-        address dapp,
-        bytes memory request_id
-    ) private view returns (FastWithdrawalRequest storage) {
-        Position memory position = idToRequestPosition[request_id];
-        if (!position.exists) {
-            revert FastWithdrawalRequestNotFound();
-        }
-
-        return dappRequests[dapp][position.pos];
-    }
-
     // Tickets are exchange by an ERC20 token once the Rollup state is final.
     // The fee charged by the L2 validators are included in the ticket price,
-    // tickets worth less than the actual token, initial proportion is 1.168:1.
+    // recipients worth less than the actual token, initial proportion is 1.168:1.
     // With time the price of the ticket gets closer to the price of the token.
     uint256 internal constant INITIAL_PROPORTION = 1168e15;
     uint256 internal constant DECAY_PER_HOUR = 1e15;
 
-    function _calculateTicketProportion(
+    function _calculateDecaying(
         uint256 request_timestamp
     ) internal view returns (uint256) {
         unchecked {
@@ -152,7 +138,7 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
             dapp,
             _requestId
         );
-        uint256 ticketAmountAvailable = tickets[_requestId][requester];
+        uint256 ticketAmountAvailable = recipients[_requestId][requester];
 
         if (ticketAmountAvailable == 0) {
             revert FundingAlreadyCompleted();
@@ -163,24 +149,24 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
         }
 
         // DYNAMIC PRICE
-        uint256 ticketProportion = _calculateTicketProportion(
-            request.timestamp
-        );
-        uint256 tokenToTicket = (_amount * ticketProportion) / 1e18;
+        uint256 decayingProportion = _calculateDecaying(request.timestamp);
+        uint256 amountFunded = (_amount * decayingProportion) / 1e18;
         uint256 transferAmount;
 
-        // verify the amount of tickets available
-        if (tokenToTicket <= ticketAmountAvailable) {
+        // verify the amount of recipients available
+        if (amountFunded <= ticketAmountAvailable) {
             transferAmount = _amount;
         } else {
-            transferAmount = (ticketAmountAvailable * 1e18) / ticketProportion;
-            tokenToTicket = ticketAmountAvailable;
+            transferAmount =
+                (ticketAmountAvailable * 1e18) /
+                decayingProportion;
+            amountFunded = ticketAmountAvailable;
         }
 
         // send funds to Fast Withdrawal requester
-        tickets[_requestId][requester] -= tokenToTicket;
-        tickets[_requestId][msg.sender] += tokenToTicket;
-        request.tickets_bought += tokenToTicket;
+        recipients[_requestId][requester] -= amountFunded;
+        recipients[_requestId][msg.sender] += amountFunded;
+        request.amount_funded += amountFunded;
 
         _token.safeTransferFrom(msg.sender, requester, transferAmount);
 
@@ -257,12 +243,12 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
 
         // 3) Proceeds to withdraw
         IERC20 token = IERC20(request.token);
-        uint256 ticketAmount = tickets[_requestId][msg.sender];
-        request.redeemed += ticketAmount;
+        uint256 ticketAmount = recipients[_requestId][msg.sender];
+        request.amount_redeemed += ticketAmount;
         token.safeTransfer(msg.sender, ticketAmount);
 
         // 4) Delete request from list
-        if (request.redeemed >= request.amount) {
+        if (request.amount_redeemed >= request.amount) {
             _removeFastWithdrawalRequest(dapp, _requestId);
         }
     }
@@ -331,32 +317,5 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
             to := mload(add(_payload, 36)) // selector(4 bytes) + address(32 bytes)
             amount := mload(add(_payload, 68))
         }
-    }
-
-    function _removeFastWithdrawalRequest(
-        address _dapp,
-        bytes memory _requestId
-    ) internal {
-        Position storage position = idToRequestPosition[_requestId];
-
-        if (!position.exists) {
-            revert FastWithdrawalRequestNotFound();
-        }
-
-        uint256 len = dappRequests[_dapp].length;
-
-        require(position.pos < len);
-
-        //delete idToRequestPosition[request_id];
-        position.exists = false;
-
-        // replace item in "pos" by the last item
-        FastWithdrawalRequest memory last_request = dappRequests[_dapp][
-            len - 1
-        ];
-        idToRequestPosition[last_request.id] = Position(position.pos, true);
-        dappRequests[_dapp][position.pos] = last_request;
-
-        dappRequests[_dapp].pop();
     }
 }
