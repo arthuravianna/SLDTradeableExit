@@ -46,8 +46,7 @@ contract CartesiTradeableExit is TradeableExit {
             id: _requestId,
             token: _token,
             amount: _amount,
-            amount_funded: 0, // unused on Tradeable Exit
-            amount_redeemed: 0, // unused on Tradeable Exit
+            amountRedeemed: 0, // unused on Tradeable Exit
             timestamp: _inputTimestamp
         });
 

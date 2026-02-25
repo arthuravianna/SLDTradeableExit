@@ -8,8 +8,7 @@ struct FastWithdrawalRequest {
     address token;
     uint256 timestamp;
     uint256 amount;
-    uint256 amount_funded; // amount funded by liquidity providers
-    uint256 amount_redeemed; // amount redeemed by the liquidity providers after the dispute period
+    uint256 amountRedeemed; // amount redeemed by the liquidity providers after the dispute period
 }
 
 struct Position {

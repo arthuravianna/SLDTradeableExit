@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {TradeableExit, FastWithdrawalRequest, Position, FastWithdrawalRequestNotFound, ERC20TransferFailed, FundingTimeout, FundingAlreadyCompleted, NotEnoughBalanceToWithdrawal, FundingFastWithdrawal} from "../TradeableExit/TradeableExit.sol";
+import {TradeableExit, FastWithdrawalRequestFeeNotPaid, FastWithdrawalRequest, Position, FastWithdrawalRequestNotFound, ERC20TransferFailed, FundingTimeout, FundingAlreadyCompleted, NotEnoughBalanceToWithdrawal, FundingFastWithdrawal} from "../TradeableExit/TradeableExit.sol";
 
 // ticket error
 error TicketTransferFailed();
@@ -12,7 +12,7 @@ abstract contract SLDTradeableExit is TradeableExit {
     mapping(bytes requestId => mapping(address recipient => uint256 amount))
         internal recipients;
 
-    function getFastWithdrawalRequestRemainingTicketsPrice(
+    function getFastWithdrawalRemainingAmountPrice(
         bytes memory _requestId
     ) external view virtual returns (uint256, uint256, string memory);
 }
