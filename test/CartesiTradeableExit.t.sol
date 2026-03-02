@@ -113,7 +113,6 @@ contract CartesiTradeableExitTest is Test {
             token,
             inputTimestamp,
             amount,
-            0,
             0
         );
         FastWithdrawalRequest memory requestActual = tradeableExit

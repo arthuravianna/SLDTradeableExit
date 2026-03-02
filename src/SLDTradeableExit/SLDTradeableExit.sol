@@ -15,4 +15,8 @@ abstract contract SLDTradeableExit is TradeableExit {
     function getFastWithdrawalRemainingAmountPrice(
         bytes memory _requestId
     ) external view virtual returns (uint256, uint256, string memory);
+
+    function getUserDelayedWithdrawalAmount(bytes memory _requestId, address _user) external view virtual returns(uint256) {
+        return recipients[_requestId][_user];
+    }
 }

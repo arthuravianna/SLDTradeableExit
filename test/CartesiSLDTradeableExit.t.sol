@@ -24,10 +24,10 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
     uint256 constant INPUT_INDEX = 0;
     uint256 constant VOUCHER_INDEX = 0;
     uint256 constant FAST_WITHDRAWAL_REQUESTER_BALANCE_AFTER_FUNDING_5MIN =
-        85616438356164383561; //  85.616 tokens
+        996*1e17; //  99.6 tokens
     uint256 constant VALIDATOR_MOCK_ERC20_INITIAL_BALANCE = 1e21; // 1000 tokens
     uint256 constant VALIDATOR_MOCK_ERC20_BALANCE_AFTER_FUNDING_5MIN =
-        914383561643835616439; // 1000 tokens - 85.616 tokens
+        VALIDATOR_MOCK_ERC20_INITIAL_BALANCE - FAST_WITHDRAWAL_REQUESTER_BALANCE_AFTER_FUNDING_5MIN; // 1000 tokens - 99.6 token tokens
 
     bytes REQUEST_ID =
         abi.encode(
@@ -57,6 +57,8 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
             address(sldTradeableExit),
             VALIDATOR_MOCK_ERC20_INITIAL_BALANCE
         );
+        // give some ether to the requester to pay for the flat fee
+        vm.deal(FAST_WITHDRAWAL_REQUESTER, 1 ether);
 
         // sldTradeableExit needs balance to test withdrawal
         // this is the value available in the contract after the delayed withdrawal is executed,
@@ -84,7 +86,9 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
         inputBox.addInput(address(cartesiDappMock), WITHDRAWAL_INPUT);
 
         // 2) request fast withdrawal
-        sldTradeableExit.requestFastWithdrawal(
+        sldTradeableExit.requestFastWithdrawal{
+            value: sldTradeableExit.DEFAULT_FLAT_FEE()
+        }(
             REQUEST_ID,
             address(mockERC20),
             FAST_WITHDRAWAL_REQUEST_AMOUNT,
@@ -106,19 +110,32 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
         _;
     }
 
-    function test_CalculateTicketProportion() public {
+    function test_CalculateFee0() public {
         uint256 requestTimestamp = 0;
 
         // Set the block timestamp to a specific time
         uint256 fakeTime = 3600; // 1 hour
         vm.warp(fakeTime);
 
-        uint256 actualProportion = _calculateDecaying(requestTimestamp);
-        uint256 initialProportion = 1168000000000000000; // 1.168;
-        uint256 proportionDecayPerHour = 1000000000000000; // 0.001
-        uint256 expectedProportion = initialProportion - proportionDecayPerHour; // 1.168 - 0.001
+        uint256 fee = _calculateFee(FAST_WITHDRAWAL_REQUEST_AMOUNT, requestTimestamp);
+        // FAST_WITHDRAWAL_REQUEST_AMOUNT * 0.00397619 (0.0397619%)
+        uint256 expectedFee = 397619*1e12; // 0.397619 token
 
-        assertEq(expectedProportion, actualProportion);
+        assertEq(fee, expectedFee);
+    }
+
+    function test_CalculateFee1() public {
+        uint256 requestTimestamp = 0;
+
+        // Set the block timestamp to a specific time
+        uint256 fakeTime = 3600*84; // 84 hours (half a week)
+        vm.warp(fakeTime);
+
+        uint256 fee = _calculateFee(FAST_WITHDRAWAL_REQUEST_AMOUNT, requestTimestamp);
+        // FAST_WITHDRAWAL_REQUEST_AMOUNT * 0,00199996 (0,0199996%)
+        uint256 expectedFee = 199996*1e12; // 0.199996 token
+
+        assertEq(fee, expectedFee);
     }
 
     function testFuzz_RequestFastWithdrawal(
@@ -129,7 +146,7 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
         uint256 voucherIndex,
         uint256 inputTimestamp
     ) public {
-        vm.prank(FAST_WITHDRAWAL_REQUESTER);
+        vm.startPrank(FAST_WITHDRAWAL_REQUESTER);
         // assume a "safe" value for amount
         vm.assume(amount < 1e36);
 
@@ -139,7 +156,9 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
             inputIndex,
             voucherIndex
         );
-        sldTradeableExit.requestFastWithdrawal(
+        sldTradeableExit.requestFastWithdrawal{
+            value: sldTradeableExit.DEFAULT_FLAT_FEE()
+        }(
             requestId,
             token,
             amount,
@@ -151,7 +170,6 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
             token,
             inputTimestamp,
             amount,
-            0,
             0
         );
         FastWithdrawalRequest memory requestActual = sldTradeableExit
@@ -170,11 +188,13 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
             "amount mismatch"
         );
 
-        uint256 ticketsActualBalance = sldTradeableExit.getTickets(
+        uint256 delayedWithdrawalAmount = sldTradeableExit.getUserDelayedWithdrawalAmount(
             requestId,
             FAST_WITHDRAWAL_REQUESTER
         );
-        assertEq(ticketsActualBalance, amount, "balance mismatch");
+        assertEq(delayedWithdrawalAmount, amount, "delayed withdrawal amount mismatch");
+
+        vm.stopPrank();
     }
 
     function test_FundFastWithdrawalRequestNotFound() public {
@@ -208,24 +228,30 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
             FAST_WITHDRAWAL_REQUEST_AMOUNT
         );
 
-        // assert requester tickets balance
-        assertEq(
-            sldTradeableExit.getTickets(REQUEST_ID, FAST_WITHDRAWAL_REQUESTER),
-            0,
-            "mismatch requester ticket balance"
+        // assert requester delayed withdrawal amount
+        uint256 delayedWithdrawalAmount = sldTradeableExit.getUserDelayedWithdrawalAmount(
+            REQUEST_ID,
+            FAST_WITHDRAWAL_REQUESTER
         );
+        assertEq(delayedWithdrawalAmount, 0, "requester delayed withdrawal amount mismatch");
 
         // assert requester MockERC20 balance
-        uint256 expectedFastWithdrawalRequesterBalance = 85689802913453299057;
+        uint256 feeAfterOneHour = _calculateFee(FAST_WITHDRAWAL_REQUEST_AMOUNT, FAST_WITHDRAWAL_TIMESTAMP);
+        uint256 expectedFastWithdrawalRequesterBalance = FAST_WITHDRAWAL_REQUEST_AMOUNT - feeAfterOneHour;
         assertEq(
             mockERC20.balanceOf(FAST_WITHDRAWAL_REQUESTER),
             expectedFastWithdrawalRequesterBalance
         );
 
-        // assert validator tickets balance
+        // assert validator delayed withdrawal amount
+        delayedWithdrawalAmount = sldTradeableExit.getUserDelayedWithdrawalAmount(
+            REQUEST_ID,
+            VALIDATOR
+        );
         assertEq(
-            sldTradeableExit.getTickets(REQUEST_ID, VALIDATOR),
-            FAST_WITHDRAWAL_REQUEST_AMOUNT
+            delayedWithdrawalAmount, 
+            FAST_WITHDRAWAL_REQUEST_AMOUNT, 
+            "validator delayed withdrawal amount mismatch"
         );
     }
 
@@ -247,28 +273,28 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
             fundingAmount
         );
 
-        // assert requester tickets balance
-        uint256 expectedRequesterTicketsAfterFirstFunding = 41650000000000000000;
+        // assert requester delayed withdrawal amount
+        uint256 firstFundingFee = _calculateFee(fundingAmount, FAST_WITHDRAWAL_TIMESTAMP);
+        uint256 expectedRequesterDelayedWithdrawalAmountAfterFirstFunding = FAST_WITHDRAWAL_REQUEST_AMOUNT - fundingAmount - firstFundingFee;
         assertEq(
-            sldTradeableExit.getTickets(REQUEST_ID, FAST_WITHDRAWAL_REQUESTER),
-            expectedRequesterTicketsAfterFirstFunding,
-            "1) mismatch requester tickets balance"
+            sldTradeableExit.getUserDelayedWithdrawalAmount(REQUEST_ID, FAST_WITHDRAWAL_REQUESTER),
+            expectedRequesterDelayedWithdrawalAmountAfterFirstFunding,
+            "1) mismatch requester delayed withdrawal amount"
         );
 
         // assert requester MockERC20 balance
-        uint256 expectedRequesterMockERC20BalanceAfterFirstFunding = 50000000000000000000;
         assertEq(
             mockERC20.balanceOf(FAST_WITHDRAWAL_REQUESTER),
-            expectedRequesterMockERC20BalanceAfterFirstFunding,
+            fundingAmount,
             "1) mismatch requester mockERC20 balance"
         );
 
-        // assert validator tickets balance
-        uint256 expectedValidatorTicketsAfterFirstFunding = 58350000000000000000;
+        // assert validator delayed withdrawal amount
+        uint256 expectedValidatorDelayedWithdrawalAmountAfterFirstFunding = fundingAmount + firstFundingFee;
         assertEq(
-            sldTradeableExit.getTickets(REQUEST_ID, VALIDATOR),
-            expectedValidatorTicketsAfterFirstFunding,
-            "1) mismatch VALIDATOR tickets balance"
+            sldTradeableExit.getUserDelayedWithdrawalAmount(REQUEST_ID, VALIDATOR),
+            expectedValidatorDelayedWithdrawalAmountAfterFirstFunding,
+            "1) mismatch VALIDATOR delayed withdrawal amount"
         );
 
         // Validator 1 funding (this validator will pay more for the funding due to time)
@@ -281,35 +307,30 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
             fundingAmount
         );
 
-        // assert requester tickets balance
+        // assert requester delayed withdrawal amount
         assertEq(
-            sldTradeableExit.getTickets(REQUEST_ID, FAST_WITHDRAWAL_REQUESTER),
+            sldTradeableExit.getUserDelayedWithdrawalAmount(REQUEST_ID, FAST_WITHDRAWAL_REQUESTER),
             0,
-            "2) mismatch requester tickets balance"
+            "2) mismatch requester delayed withdrawal amount"
         );
 
+
+        uint256 secondFundingFee = _calculateFee(expectedRequesterDelayedWithdrawalAmountAfterFirstFunding, FAST_WITHDRAWAL_TIMESTAMP);
         // assert requester MockERC20 balance
-        uint256 expectedRequesterMockERC20BalanceAfterSecondFunding = 87187500000000000000;
+        uint256 expectedRequesterMockERC20BalanceAfterSecondFunding = FAST_WITHDRAWAL_REQUEST_AMOUNT - firstFundingFee - secondFundingFee;
         assertEq(
             mockERC20.balanceOf(FAST_WITHDRAWAL_REQUESTER),
             expectedRequesterMockERC20BalanceAfterSecondFunding,
             "2) mismatch requester mockERC20 balance"
         );
 
-        // assert validator tickets balance
-        uint256 expectedValidator1TicketsAfterSecondFunding = 41650000000000000000;
+        // assert validator delayed withdrawal amount
+        // should receives the remaining
+        uint256 expectedValidator1DelayedWithdrawalAmountAfterSecondFunding = expectedRequesterDelayedWithdrawalAmountAfterFirstFunding;
         assertEq(
-            sldTradeableExit.getTickets(REQUEST_ID, VALIDATOR_1),
-            expectedValidator1TicketsAfterSecondFunding,
-            "2) mismatch VALIDATOR_1 tickets balance"
-        );
-
-        FastWithdrawalRequest memory request = sldTradeableExit
-            .getFastWithdrawalRequest(REQUEST_ID);
-        assertEq(
-            request.amount_funded,
-            FAST_WITHDRAWAL_REQUEST_AMOUNT,
-            "mismatch amount funded"
+            sldTradeableExit.getUserDelayedWithdrawalAmount(REQUEST_ID, VALIDATOR_1),
+            expectedValidator1DelayedWithdrawalAmountAfterSecondFunding,
+            "2) mismatch VALIDATOR_1 delayed withdrawal amount"
         );
     }
 
@@ -349,6 +370,8 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
             FAST_WITHDRAWAL_REQUESTER_BALANCE_AFTER_FUNDING_5MIN,
             "1) mismatch FAST_WITHDRAWAL_REQUESTER mockERC20 balance AFTER funding"
         );
+
+
         assertEq(
             mockERC20.balanceOf(VALIDATOR),
             VALIDATOR_MOCK_ERC20_BALANCE_AFTER_FUNDING_5MIN,
@@ -363,6 +386,12 @@ contract SLDTradeableExitTest is Test, CartesiSLDTradeableExit {
             mockERC20.balanceOf(VALIDATOR),
             VALIDATOR_MOCK_ERC20_INITIAL_BALANCE + fee,
             "3) mismatch VALIDATOR mockERC20 balance AFTER withdraw"
+        );
+
+        assertEq(
+            VALIDATOR.balance,
+            sldTradeableExit.DEFAULT_FLAT_FEE(),
+            "4) mismatch VALIDATOR flat fee reward"
         );
     }
 }

@@ -9,7 +9,7 @@ import {IConsensus} from "@cartesi/rollups/contracts/consensus/IConsensus.sol";
 import {InputBox} from "@cartesi/rollups/contracts/inputs/InputBox.sol";
 import "../SLDTradeableExit/SLDTradeableExit.sol";
 
-error FastWithdrawalRequesterMismatch();
+error FastWithdrawalRequesterMismatch(address, address);
 error VoucherIsNotAWithdrawal();
 error FailedToExecuteVoucher();
 error InvalidWithdrawalRequest(bytes32 expected, bytes32 actual);
@@ -21,8 +21,8 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
     InputBox private immutable INPUT_BOX =
         InputBox(0x59b22D57D4f067708AB0c00552767405926dc768);
     uint256 private immutable PRECISION = 1e18;
-    uint256 public constant DYNAMIC_FEE_INITIAL_BPS = 4; // %0.04 variable fee
-    uint256 public constant DYNAMIC_FEE_DECAY_PER_HOUR_BPS = 2381; // %0.02381 fee decrease every hour, in 7 days it will be 0%
+    uint256 public constant DYNAMIC_FEE_INITIAL_BPS = 400000; // 0.004 = %0.04 variable fee
+    uint256 public constant DYNAMIC_FEE_DECAY_PER_HOUR_BPS = 2381; // 0.00002381 = %0.0002381 fee decrease every hour, in 7 days it will be 0%
 
     function requestFastWithdrawal(
         bytes calldata _requestId,
@@ -31,7 +31,7 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
         uint256 _inputTimestamp
     ) external payable override {
         (address rollup, address requester, , ) = _decodeRequestId(_requestId);
-        if (requester != msg.sender) revert FastWithdrawalRequesterMismatch();
+        if (requester != msg.sender) revert FastWithdrawalRequesterMismatch(requester, msg.sender);
         if (msg.value < DEFAULT_FLAT_FEE) {
             revert FastWithdrawalRequestFeeNotPaid(
                 _requestId,
@@ -81,11 +81,11 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
         }
 
         // DYNAMIC PRICE
-        uint256 amountToFund = _amount +
+        uint256 delayedWithdrawalAmount = _amount +
             _calculateFee(_amount, request.timestamp);
         uint256 transferAmount;
 
-        if (amountToFund <= remainingAmountToFund) {
+        if (delayedWithdrawalAmount <= remainingAmountToFund) {
             transferAmount = _amount;
         } else {
             // if the liquidity provider wants to fund more than the remaining amount.
@@ -93,12 +93,12 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
             transferAmount =
                 remainingAmountToFund -
                 _calculateFee(remainingAmountToFund, request.timestamp);
-            amountToFund = remainingAmountToFund;
+            delayedWithdrawalAmount = remainingAmountToFund;
         }
 
         // send funds to Fast Withdrawal requester
-        recipients[_requestId][requester] -= amountToFund;
-        recipients[_requestId][msg.sender] += amountToFund;
+        recipients[_requestId][requester] -= delayedWithdrawalAmount;
+        recipients[_requestId][msg.sender] += delayedWithdrawalAmount;
 
         _token.safeTransferFrom(msg.sender, requester, transferAmount);
 
@@ -123,7 +123,7 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
             address requester,
             uint256 inputIndex,
             uint256 voucherIndex
-        ) = abi.decode(_requestId, (address, address, uint256, uint256));
+        ) = _decodeRequestId(_requestId);
         FastWithdrawalRequest storage request = _getFastWithdrawalRequest(
             dapp,
             _requestId
@@ -148,6 +148,7 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
 
         require(destination == request.token, "Invalid voucher destination");
 
+        bool success;
         {
             // scope to avoid stack too deep errors
             // 1) Verify voucher payload
@@ -161,7 +162,7 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
             // 2) Was voucher executed?
             ICartesiDApp cartesi_dapp = ICartesiDApp(dapp);
             if (!cartesi_dapp.wasVoucherExecuted(inputIndex, voucherIndex)) {
-                bool success = cartesi_dapp.executeVoucher(
+                success = cartesi_dapp.executeVoucher(
                     destination,
                     payload,
                     proof
@@ -174,10 +175,19 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
         }
 
         // 3) Proceeds to withdraw
-        IERC20 token = IERC20(request.token);
-        uint256 ticketAmount = recipients[_requestId][msg.sender];
-        request.amountRedeemed += ticketAmount;
-        token.safeTransfer(msg.sender, ticketAmount);
+        // 3.1) ERC20 withdrawal
+        request.amountRedeemed += recipients[_requestId][msg.sender];
+        IERC20(request.token).safeTransfer(msg.sender, recipients[_requestId][msg.sender]);
+
+        // 3.2) Native token (flat fee) withdrawal
+        uint256 nativeTokenReward = (request.amount / recipients[_requestId][msg.sender]) * DEFAULT_FLAT_FEE;
+        require(
+            nativeTokenReward <= address(this).balance,
+            "Insufficient balance in contract"
+        );
+
+        (success, ) = msg.sender.call{value: nativeTokenReward}("");
+        require(success, "Failed to send native token");
 
         // 4) Delete request from list
         if (request.amountRedeemed >= request.amount) {

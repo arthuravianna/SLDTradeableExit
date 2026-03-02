@@ -41,7 +41,7 @@ abstract contract TradeableExit {
     // The total fee is the sum of the flat fee and the variable fee.
     // reference: https://docs.debridge.com/dln-details/overview/fee-structure
     uint256 public constant DEFAULT_FLAT_FEE = 1 * 10 ** 15; // 0.001 Native Token
-    uint256 internal constant DEFAULT_BASIS_POINTS_FACTOR = 10000;
+    uint256 internal constant DEFAULT_BASIS_POINTS_FACTOR = 100000000; // 100000000 = 100%
 
     mapping(address => FastWithdrawalRequest[]) internal dappRequests;
     // {_requestId: <request position in dapp/rollup requests>}
