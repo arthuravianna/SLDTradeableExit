@@ -8,6 +8,7 @@ import "lib/token-bridge-contracts/contracts/tokenbridge/ethereum/gateway/IL1Arb
 import "../SLDTradeableExit/SLDTradeableExit.sol";
 
 error FastWithdrawalRequesterMismatch(address, address);
+error WithdrawalAlreadyProcessed(bytes requestId);
 
 contract ArbitrumSLDTradeableExit is SLDTradeableExit {
     using SafeERC20 for IERC20;
@@ -30,7 +31,7 @@ contract ArbitrumSLDTradeableExit is SLDTradeableExit {
         uint256 _amount,
         uint256 _inputTimestamp
     ) external payable virtual override {
-        (address requester, ) = _decodeRequestId(_requestId);
+        (address requester, uint256 exitNum) = _decodeRequestId(_requestId);
         if (requester != msg.sender)
             revert FastWithdrawalRequesterMismatch(requester, msg.sender);
         if (msg.value < DEFAULT_FLAT_FEE) {
@@ -38,6 +39,15 @@ contract ArbitrumSLDTradeableExit is SLDTradeableExit {
                 _requestId,
                 DEFAULT_FLAT_FEE
             );
+        }
+
+        IL1ArbitrumGateway.WithdrawalInfo
+            memory withdrawalInfo = l1ArbitrumGateway.getWithdrawalInfo(
+                exitNum
+            );
+
+        if (withdrawalInfo.from != address(0)) {
+            revert WithdrawalAlreadyProcessed(_requestId);
         }
 
         FastWithdrawalRequest memory request = FastWithdrawalRequest({

@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {ArbitrumSLDTradeableExit, FastWithdrawalRequest} from "../src/Arbitrum/ArbitrumSLDTradeableExit.sol";
+import {ArbitrumSLDTradeableExit, FastWithdrawalRequest, WithdrawalAlreadyProcessed} from "../src/Arbitrum/ArbitrumSLDTradeableExit.sol";
 import {MockERC20} from "./MockERC20.sol";
 import {L1ArbitrumGatewayMock} from "./mocks/L1ArbitrumGatewayMock.sol";
 
@@ -167,6 +167,38 @@ contract ArbitrumSLDTradeableExitTest is Test, ArbitrumSLDTradeableExit {
             delayedWithdrawalAmount,
             amount,
             "delayed withdrawal amount mismatch"
+        );
+
+        vm.stopPrank();
+    }
+
+    function test_RequestFastWithdrawalAlreadyProcessed() public {
+        vm.startPrank(FAST_WITHDRAWAL_REQUESTER);
+        vm.warp(FAST_WITHDRAWAL_TIMESTAMP);
+
+        // execute delayed withdrawal on L1 to simulate the exit being ready for withdrawal
+        arbitrumGateway.setWithdrawalInfo(
+            0, // exitNum
+            FAST_WITHDRAWAL_REQUESTER,
+            address(mockERC20),
+            FAST_WITHDRAWAL_REQUEST_AMOUNT,
+            address(sldTradeableExit)
+        );
+
+        uint256 flatFee = sldTradeableExit.DEFAULT_FLAT_FEE();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                WithdrawalAlreadyProcessed.selector,
+                REQUEST_ID
+            )
+        );
+
+        // request fast withdrawal, should revert because the withdrawal is already processed on L1
+        sldTradeableExit.requestFastWithdrawal{value: flatFee}(
+            REQUEST_ID,
+            address(mockERC20),
+            FAST_WITHDRAWAL_REQUEST_AMOUNT,
+            FAST_WITHDRAWAL_TIMESTAMP
         );
 
         vm.stopPrank();
