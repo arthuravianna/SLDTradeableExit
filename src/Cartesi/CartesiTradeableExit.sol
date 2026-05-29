@@ -7,7 +7,7 @@ import {ICartesiDApp, Proof} from "@cartesi/rollups/contracts/dapp/ICartesiDApp.
 import {InputBox} from "@cartesi/rollups/contracts/inputs/InputBox.sol";
 import "../TradeableExit/TradeableExit.sol";
 
-error FastWithdrawalRequesterMismatch();
+error FastWithdrawalRequesterMismatch(address, address);
 error VoucherIsNotAWithdrawal();
 error FailedToExecuteVoucher();
 error InvalidWithdrawalRequest(bytes32 expected, bytes32 actual);
@@ -17,13 +17,13 @@ contract CartesiTradeableExit is TradeableExit {
 
     InputBox private immutable INPUT_BOX =
         InputBox(0x59b22D57D4f067708AB0c00552767405926dc768);
+    uint256 public constant BPS = 4; // %0.04 variable fee
 
     constructor() {}
 
-    // Tradeable Exit request_id = abi.encode(rollup, requester, price, input_index, voucher_index)
-
-    // request_id -> recipient address
-    // recipient of the withdrawal with request_id identifier
+    // recipient of the delayed withdrawal with request_id identifier
+    // once a request is traded, we update the recipient to the liquidity provider
+    // that funded the request
     mapping(bytes request_id => address recipient) internal recipients;
 
     function requestFastWithdrawal(
@@ -31,19 +31,22 @@ contract CartesiTradeableExit is TradeableExit {
         address _token,
         uint256 _amount,
         uint256 _inputTimestamp
-    ) external virtual override {
-        (address rollup, address requester, , , ) = abi.decode(
-            _requestId,
-            (address, address, uint256, uint256, uint256)
-        );
-        if (requester != msg.sender) revert FastWithdrawalRequesterMismatch();
+    ) external payable virtual override {
+        (address rollup, address requester, , ) = _decodeRequestId(_requestId);
+        if (requester != msg.sender)
+            revert FastWithdrawalRequesterMismatch(requester, msg.sender);
+        if (msg.value < DEFAULT_FLAT_FEE) {
+            revert FastWithdrawalRequestFeeNotPaid(
+                _requestId,
+                DEFAULT_FLAT_FEE
+            );
+        }
 
         FastWithdrawalRequest memory request = FastWithdrawalRequest({
             id: _requestId,
             token: _token,
             amount: _amount,
-            tickets_bought: 0, // unused on Tradeable Exit
-            redeemed: 0, // unused on Tradeable Exit
+            amountRedeemed: 0, // unused on Tradeable Exit
             timestamp: _inputTimestamp
         });
 
@@ -63,12 +66,9 @@ contract CartesiTradeableExit is TradeableExit {
     function fundFastWithdrawalRequest(
         bytes calldata _requestId,
         IERC20 _token,
-        uint256 _amount
+        uint256 _amount // unused
     ) external virtual override {
-        (address dapp, address requester, uint256 price, , ) = abi.decode(
-            _requestId,
-            (address, address, uint256, uint256, uint256)
-        );
+        (address dapp, address requester, , ) = _decodeRequestId(_requestId);
         FastWithdrawalRequest storage request = _getFastWithdrawalRequest(
             dapp,
             _requestId
@@ -78,6 +78,8 @@ contract CartesiTradeableExit is TradeableExit {
             revert FundingTimeout();
         }
 
+        uint256 price = request.amount -
+            _calculateVariableFee(request.amount, BPS);
         // send funds to Fast Withdrawal requester
         _token.safeTransferFrom(msg.sender, requester, price);
 
@@ -103,13 +105,9 @@ contract CartesiTradeableExit is TradeableExit {
         (
             address dapp,
             address requester,
-            ,
             uint256 inputIndex,
             uint256 voucherIndex
-        ) = abi.decode(
-                _requestId,
-                (address, address, uint256, uint256, uint256)
-            );
+        ) = _decodeRequestId(_requestId);
         FastWithdrawalRequest storage request = _getFastWithdrawalRequest(
             dapp,
             _requestId
@@ -129,6 +127,7 @@ contract CartesiTradeableExit is TradeableExit {
 
         require(destination == request.token, "Invalid voucher destination");
 
+        bool success;
         {
             // scope to avoid stack too deep errors
             // 1) Verify voucher payload
@@ -142,7 +141,7 @@ contract CartesiTradeableExit is TradeableExit {
             // 2) Was voucher executed?
             ICartesiDApp cartesi_dapp = ICartesiDApp(dapp);
             if (!cartesi_dapp.wasVoucherExecuted(inputIndex, voucherIndex)) {
-                bool success = cartesi_dapp.executeVoucher(
+                success = cartesi_dapp.executeVoucher(
                     destination,
                     payload,
                     proof
@@ -155,6 +154,7 @@ contract CartesiTradeableExit is TradeableExit {
         }
 
         // 3) Proceeds to withdraw
+        // 3.1) ERC20 token
         require(
             recipients[_requestId] == msg.sender,
             "Not the withdrawal recipient"
@@ -163,27 +163,27 @@ contract CartesiTradeableExit is TradeableExit {
         IERC20 token = IERC20(request.token);
         token.safeTransfer(msg.sender, request.amount);
 
+        // 3.2) Native token fee
+        require(
+            DEFAULT_FLAT_FEE <= address(this).balance,
+            "Insufficient balance in contract"
+        );
+
+        (success, ) = msg.sender.call{value: DEFAULT_FLAT_FEE}("");
+        require(success, "Failed to send native token");
+
         // 4) Delete request from list
         _removeFastWithdrawalRequest(dapp, _requestId);
     }
 
-    function getRollupFastWithdrawalRequests(
-        address _rollup
-    ) external view virtual override returns (FastWithdrawalRequest[] memory) {
-        return dappRequests[_rollup];
-    }
-
     function getFastWithdrawalRequest(
         bytes calldata _requestId
-    ) external view virtual override returns (FastWithdrawalRequest memory) {
-        (address dapp, , , , ) = abi.decode(
-            _requestId,
-            (address, address, uint256, uint256, uint256)
-        );
+    ) external view virtual returns (FastWithdrawalRequest memory) {
+        (address dapp, , , ) = _decodeRequestId(_requestId);
         Position memory position = idToRequestPosition[_requestId];
 
         if (!position.exists) {
-            revert FastWithdrawalRequestNotFound();
+            revert FastWithdrawalRequestNotFound(_requestId);
         }
 
         return dappRequests[dapp][position.pos];
@@ -195,16 +195,19 @@ contract CartesiTradeableExit is TradeableExit {
         return recipients[_requestId];
     }
 
-    function _getFastWithdrawalRequest(
-        address dapp,
-        bytes memory _requestId
-    ) private view returns (FastWithdrawalRequest storage) {
-        Position memory position = idToRequestPosition[_requestId];
-        if (!position.exists) {
-            revert FastWithdrawalRequestNotFound();
-        }
-
-        return dappRequests[dapp][position.pos];
+    function _decodeRequestId(
+        bytes calldata _requestId
+    )
+        internal
+        pure
+        returns (
+            address rollup,
+            address requester,
+            uint256 inputIndex,
+            uint256 voucherIndex
+        )
+    {
+        return abi.decode(_requestId, (address, address, uint256, uint256));
     }
 
     /**
@@ -271,29 +274,5 @@ contract CartesiTradeableExit is TradeableExit {
             to := mload(add(_payload, 36)) // selector(4 bytes) + address(32 bytes)
             amount := mload(add(_payload, 68))
         }
-    }
-
-    function _removeFastWithdrawalRequest(
-        address _dapp,
-        bytes memory _requestId
-    ) internal {
-        Position storage position = idToRequestPosition[_requestId];
-
-        if (!position.exists) {
-            revert FastWithdrawalRequestNotFound();
-        }
-
-        uint256 len = dappRequests[_dapp].length;
-
-        require(position.pos < len);
-
-        //delete idToRequestPosition[request_id];
-        position.exists = false;
-
-        // replace item in "pos" by the last item
-        FastWithdrawalRequest memory lastRequest = dappRequests[_dapp][len - 1];
-        idToRequestPosition[lastRequest.id] = Position(position.pos, true);
-        dappRequests[_dapp][position.pos] = lastRequest;
-        dappRequests[_dapp].pop();
     }
 }

@@ -1,0 +1,3 @@
+[submodule "lib/token-bridge-contracts"]
+	path = lib/token-bridge-contracts
+	url = https://github.com/arthuravianna/token-bridge-contracts
