@@ -50,7 +50,7 @@
 <polyline fill="none" stroke="black" points="220.54,-313.5 852.43,-313.5 "/>
 <text text-anchor="start" x="228.54" y="-296.9" font-family="Times,serif" font-size="14.00">External:</text>
 <text text-anchor="start" x="228.54" y="-280.1" font-family="Times,serif" font-size="14.00"> &#160;&#160;&#160;&#160;requestFastWithdrawal(request_id: bytes, token: address, amount: uint256, input_timestamp: uint256)</text>
-<text text-anchor="start" x="228.54" y="-263.3" font-family="Times,serif" font-size="14.00"> &#160;&#160;&#160;&#160;fundFastWithdrawalRequest(request_id: bytes, token: IERC20, amount: uint256)</text>
+<text text-anchor="start" x="228.54" y="-263.3" font-family="Times,serif" font-size="14.00"> &#160;&#160;&#160;&#160;fundFastWithdrawal(request_id: bytes, token: IERC20, amount: uint256)</text>
 <text text-anchor="start" x="228.54" y="-246.5" font-family="Times,serif" font-size="14.00"> &#160;&#160;&#160;&#160;withdraw(request_id: bytes, withdraw_amount: uint256, destination: address, payload: bytes, proof: Proof)</text>
 <text text-anchor="start" x="228.54" y="-229.7" font-family="Times,serif" font-size="14.00"> &#160;&#160;&#160;&#160;getRollupFastWithdrawalRequests(rollup: address): FastWithdrawalRequest[]</text>
 <text text-anchor="start" x="228.54" y="-212.9" font-family="Times,serif" font-size="14.00"> &#160;&#160;&#160;&#160;getFastWithdrawalRequest(request_id: bytes): FastWithdrawalRequest</text>

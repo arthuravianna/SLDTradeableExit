@@ -63,7 +63,7 @@ contract CartesiTradeableExit is TradeableExit {
         recipients[_requestId] = msg.sender;
     }
 
-    function fundFastWithdrawalRequest(
+    function fundFastWithdrawal(
         bytes calldata _requestId,
         IERC20 _token,
         uint256 _amount // unused
@@ -98,7 +98,7 @@ contract CartesiTradeableExit is TradeableExit {
      * voucher's destination address, payload, and proof.
      * It also encodes inputKeccak and blockNumber
      */
-    function withdraw(
+    function withdrawFastWithdrawal(
         bytes calldata _requestId,
         bytes calldata _data
     ) external virtual override {

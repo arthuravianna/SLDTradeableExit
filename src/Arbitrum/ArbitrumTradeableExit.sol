@@ -63,7 +63,7 @@ contract ArbitrumTradeableExit is TradeableExit {
         recipients[_requestId] = msg.sender;
     }
 
-    function fundFastWithdrawalRequest(
+    function fundFastWithdrawal(
         bytes calldata _requestId,
         IERC20 _token,
         uint256 _amount
@@ -89,7 +89,7 @@ contract ArbitrumTradeableExit is TradeableExit {
         emit FundingFastWithdrawal(_requestId, address(_token), price);
     }
 
-    function withdraw(
+    function withdrawFastWithdrawal(
         bytes calldata _requestId,
         bytes calldata _data
     ) external virtual override {

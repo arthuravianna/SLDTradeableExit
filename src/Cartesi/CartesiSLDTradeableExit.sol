@@ -31,7 +31,8 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
         uint256 _inputTimestamp
     ) external payable override {
         (address rollup, address requester, , ) = _decodeRequestId(_requestId);
-        if (requester != msg.sender) revert FastWithdrawalRequesterMismatch(requester, msg.sender);
+        if (requester != msg.sender)
+            revert FastWithdrawalRequesterMismatch(requester, msg.sender);
         if (msg.value < DEFAULT_FLAT_FEE) {
             revert FastWithdrawalRequestFeeNotPaid(
                 _requestId,
@@ -60,7 +61,7 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
         recipients[_requestId][msg.sender] = _amount;
     }
 
-    function fundFastWithdrawalRequest(
+    function fundFastWithdrawal(
         bytes calldata _requestId,
         IERC20 _token,
         uint256 _amount
@@ -114,7 +115,7 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
      * voucher's destination address, payload, and proof.
      * It also encodes inputKeccak and blockNumber
      */
-    function withdraw(
+    function withdrawFastWithdrawal(
         bytes calldata _requestId,
         bytes calldata _data
     ) external override {
@@ -177,10 +178,14 @@ contract CartesiSLDTradeableExit is SLDTradeableExit {
         // 3) Proceeds to withdraw
         // 3.1) ERC20 withdrawal
         request.amountRedeemed += recipients[_requestId][msg.sender];
-        IERC20(request.token).safeTransfer(msg.sender, recipients[_requestId][msg.sender]);
+        IERC20(request.token).safeTransfer(
+            msg.sender,
+            recipients[_requestId][msg.sender]
+        );
 
         // 3.2) Native token (flat fee) withdrawal
-        uint256 nativeTokenReward = (request.amount / recipients[_requestId][msg.sender]) * DEFAULT_FLAT_FEE;
+        uint256 nativeTokenReward = (request.amount /
+            recipients[_requestId][msg.sender]) * DEFAULT_FLAT_FEE;
         require(
             nativeTokenReward <= address(this).balance,
             "Insufficient balance in contract"

@@ -82,7 +82,7 @@ contract CartesiTradeableExitTest is Test {
 
     modifier fundFastWithdrawalModifier() {
         vm.prank(VALIDATOR);
-        tradeableExit.fundFastWithdrawalRequest(REQUEST_ID, mockERC20, 0);
+        tradeableExit.fundFastWithdrawal(REQUEST_ID, mockERC20, 0);
         _;
     }
 
@@ -140,7 +140,7 @@ contract CartesiTradeableExitTest is Test {
         address randomRequester = makeAddr("RandomRequester");
         bytes memory requestId = abi.encode(address(0), randomRequester, 0, 0);
 
-        tradeableExit.fundFastWithdrawalRequest(requestId, mockERC20, 0);
+        tradeableExit.fundFastWithdrawal(requestId, mockERC20, 0);
     }
 
     function test_FundFastWithdrawalRequest0()
@@ -149,7 +149,7 @@ contract CartesiTradeableExitTest is Test {
     {
         vm.prank(VALIDATOR);
 
-        tradeableExit.fundFastWithdrawalRequest(REQUEST_ID, mockERC20, 0);
+        tradeableExit.fundFastWithdrawal(REQUEST_ID, mockERC20, 0);
 
         // assert withdrawal recipient
         assertEq(
@@ -216,7 +216,7 @@ contract CartesiTradeableExitTest is Test {
         );
 
         vm.prank(VALIDATOR);
-        tradeableExit.withdraw(REQUEST_ID, data);
+        tradeableExit.withdrawFastWithdrawal(REQUEST_ID, data);
 
         uint256 fee = FAST_WITHDRAWAL_REQUEST_AMOUNT - withdrawalPrice;
         assertEq(

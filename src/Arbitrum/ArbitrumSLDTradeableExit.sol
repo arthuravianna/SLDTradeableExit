@@ -73,7 +73,7 @@ contract ArbitrumSLDTradeableExit is SLDTradeableExit {
         recipients[_requestId][msg.sender] = _amount;
     }
 
-    function fundFastWithdrawalRequest(
+    function fundFastWithdrawal(
         bytes calldata _requestId,
         IERC20 _token,
         uint256 _amount
@@ -118,7 +118,7 @@ contract ArbitrumSLDTradeableExit is SLDTradeableExit {
         emit FundingFastWithdrawal(_requestId, address(_token), transferAmount);
     }
 
-    function withdraw(
+    function withdrawFastWithdrawal(
         bytes calldata _requestId,
         bytes calldata _data
     ) external virtual override {

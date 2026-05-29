@@ -52,7 +52,7 @@ contract ArbitrumTradeableExitTest is Test {
 
     modifier fundFastWithdrawalModifier() {
         vm.prank(VALIDATOR);
-        tradeableExit.fundFastWithdrawalRequest(REQUEST_ID, mockERC20, 0);
+        tradeableExit.fundFastWithdrawal(REQUEST_ID, mockERC20, 0);
         _;
     }
 
@@ -103,7 +103,7 @@ contract ArbitrumTradeableExitTest is Test {
         address randomRequester = makeAddr("RandomRequester");
         bytes memory requestId = abi.encode(randomRequester, 0);
 
-        tradeableExit.fundFastWithdrawalRequest(requestId, mockERC20, 0);
+        tradeableExit.fundFastWithdrawal(requestId, mockERC20, 0);
     }
 
     function test_FundFastWithdrawalRequest0()
@@ -112,7 +112,7 @@ contract ArbitrumTradeableExitTest is Test {
     {
         vm.prank(VALIDATOR);
 
-        tradeableExit.fundFastWithdrawalRequest(REQUEST_ID, mockERC20, 0);
+        tradeableExit.fundFastWithdrawal(REQUEST_ID, mockERC20, 0);
 
         // assert withdrawal recipient
         assertEq(
@@ -164,7 +164,7 @@ contract ArbitrumTradeableExitTest is Test {
 
         // perform withdrawal
         vm.prank(VALIDATOR);
-        tradeableExit.withdraw(REQUEST_ID, bytes(""));
+        tradeableExit.withdrawFastWithdrawal(REQUEST_ID, bytes(""));
 
         uint256 fee = FAST_WITHDRAWAL_REQUEST_AMOUNT - withdrawalPrice;
         assertEq(

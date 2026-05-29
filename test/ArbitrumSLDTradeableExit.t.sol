@@ -78,7 +78,7 @@ contract ArbitrumSLDTradeableExitTest is Test, ArbitrumSLDTradeableExit {
         vm.prank(VALIDATOR);
         uint256 fakeTime = FAST_WITHDRAWAL_TIMESTAMP + 300; // 5 minutes later
         vm.warp(fakeTime);
-        sldTradeableExit.fundFastWithdrawalRequest(
+        sldTradeableExit.fundFastWithdrawal(
             REQUEST_ID,
             mockERC20,
             FAST_WITHDRAWAL_REQUEST_AMOUNT
@@ -208,7 +208,7 @@ contract ArbitrumSLDTradeableExitTest is Test, ArbitrumSLDTradeableExit {
         vm.expectRevert();
 
         bytes memory requestId = abi.encode(address(0), 0);
-        sldTradeableExit.fundFastWithdrawalRequest(
+        sldTradeableExit.fundFastWithdrawal(
             requestId,
             mockERC20,
             FAST_WITHDRAWAL_REQUEST_AMOUNT
@@ -224,7 +224,7 @@ contract ArbitrumSLDTradeableExitTest is Test, ArbitrumSLDTradeableExit {
         vm.warp(fakeTime);
         vm.prank(VALIDATOR);
 
-        sldTradeableExit.fundFastWithdrawalRequest(
+        sldTradeableExit.fundFastWithdrawal(
             REQUEST_ID,
             mockERC20,
             FAST_WITHDRAWAL_REQUEST_AMOUNT
@@ -276,7 +276,7 @@ contract ArbitrumSLDTradeableExitTest is Test, ArbitrumSLDTradeableExit {
 
         // Validator 0 funding
         vm.prank(VALIDATOR);
-        sldTradeableExit.fundFastWithdrawalRequest(
+        sldTradeableExit.fundFastWithdrawal(
             REQUEST_ID,
             mockERC20,
             fundingAmount
@@ -322,7 +322,7 @@ contract ArbitrumSLDTradeableExitTest is Test, ArbitrumSLDTradeableExit {
         fakeTime = FAST_WITHDRAWAL_TIMESTAMP + (3600 * 48); // 48 hours after the request
         vm.warp(fakeTime);
         vm.prank(VALIDATOR_1);
-        sldTradeableExit.fundFastWithdrawalRequest(
+        sldTradeableExit.fundFastWithdrawal(
             REQUEST_ID,
             mockERC20,
             fundingAmount
@@ -392,7 +392,7 @@ contract ArbitrumSLDTradeableExitTest is Test, ArbitrumSLDTradeableExit {
         );
 
         vm.prank(VALIDATOR);
-        sldTradeableExit.withdraw(REQUEST_ID, "");
+        sldTradeableExit.withdrawFastWithdrawal(REQUEST_ID, "");
 
         uint256 fee = FAST_WITHDRAWAL_REQUEST_AMOUNT -
             FAST_WITHDRAWAL_REQUESTER_BALANCE_AFTER_FUNDING_5MIN;

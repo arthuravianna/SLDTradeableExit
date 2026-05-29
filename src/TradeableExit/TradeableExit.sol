@@ -53,12 +53,17 @@ abstract contract TradeableExit {
     function requestFastWithdrawal(bytes calldata _requestId, address _token, uint256 _amount, uint256 _inputTimestamp)
         external virtual payable;
 
-    function fundFastWithdrawalRequest(bytes calldata _requestId, IERC20 _token, uint256 _amount) external virtual;
+    function fundFastWithdrawal(bytes calldata _requestId, IERC20 _token, uint256 _amount) external virtual;
 
-    function withdraw(
+    function withdrawFastWithdrawal(
         bytes calldata _requestId,
         bytes calldata _data
     ) external virtual;
+
+    // function withdraw(
+    //     bytes calldata _withdrawalMetadata,
+    //     bytes calldata _data
+    // ) external virtual;
 
     function getRollupFastWithdrawalRequests(
         address _rollup
